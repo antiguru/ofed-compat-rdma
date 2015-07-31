@@ -103,6 +103,13 @@ extern int netif_get_num_default_rss_queues(void);
 #define DEFAULT_MAX_NUM_RSS_QUEUES      (8)
 #endif
 
+#ifndef SUPPORTED_40000baseSR4_Full
+#define SUPPORTED_40000baseSR4_Full     (1 << 25)
+#endif
+#ifndef ADVERTISED_40000baseSR4_Full
+#define ADVERTISED_40000baseSR4_Full    (1 << 25)
+#endif
+
 #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(3,6,0)) */
 
 #endif /* LINUX_3_6_COMPAT_H */

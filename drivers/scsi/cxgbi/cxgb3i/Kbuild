@@ -1,0 +1,3 @@
+ccflags-y := -I$(CWD)/drivers/net/ethernet/chelsio/cxgb3
+
+obj-$(CONFIG_SCSI_CXGB3_ISCSI) += cxgb3i.o

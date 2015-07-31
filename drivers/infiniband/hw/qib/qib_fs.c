@@ -59,17 +59,12 @@ static int qibfs_mknod(struct inode *dir, struct dentry *dentry,
 		goto bail;
 	}
 
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,36))
+#ifdef HAVE_GET_NEXT_INO
 	inode->i_ino = get_next_ino();
 #endif
 	inode->i_mode = mode;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0)
 	inode->i_uid = GLOBAL_ROOT_UID;
 	inode->i_gid = GLOBAL_ROOT_GID;
-#else
-	inode->i_uid = 0;
-	inode->i_gid = 0;
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0) */
 	inode->i_blocks = 0;
 	inode->i_atime = CURRENT_TIME;
 	inode->i_mtime = inode->i_atime;
@@ -96,7 +91,6 @@ static int create_file(const char *name, umode_t mode,
 {
 	int error;
 
-	*dentry = NULL;
 	mutex_lock(&parent->d_inode->i_mutex);
 	*dentry = lookup_one_len(name, parent, strlen(name));
 	if (!IS_ERR(*dentry))
@@ -112,6 +106,7 @@ static int create_file(const char *name, umode_t mode,
 static ssize_t driver_stats_read(struct file *file, char __user *buf,
 				 size_t count, loff_t *ppos)
 {
+	qib_stats.sps_ints = qib_sps_ints();
 	return simple_read_from_buffer(buf, count, ppos, &qib_stats,
 				       sizeof qib_stats);
 }
@@ -461,28 +456,15 @@ static int remove_file(struct dentry *parent, char *name)
 		goto bail;
 	}
 
-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,36))
-	spin_lock(&dcache_lock);
-#endif
 	spin_lock(&tmp->d_lock);
 	if (!(d_unhashed(tmp) && tmp->d_inode)) {
-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,36))
-		dget_locked(tmp);
-#else
-		dget_dlock(tmp);
-#endif
 		__d_drop(tmp);
 		spin_unlock(&tmp->d_lock);
-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,36))
-		spin_unlock(&dcache_lock);
-#endif
 		simple_unlink(parent->d_inode, tmp);
 	} else {
 		spin_unlock(&tmp->d_lock);
-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,36))
-		spin_unlock(&dcache_lock);
-#endif
 	}
+	dput(tmp);
 
 	ret = 0;
 bail:
@@ -511,6 +493,7 @@ static int remove_device_files(struct super_block *sb,
 		goto bail;
 	}
 
+	mutex_lock(&dir->d_inode->i_mutex);
 	remove_file(dir, "counters");
 	remove_file(dir, "counter_names");
 	remove_file(dir, "portcounter_names");
@@ -525,8 +508,10 @@ static int remove_device_files(struct super_block *sb,
 		}
 	}
 	remove_file(dir, "flash");
-	d_delete(dir);
+	mutex_unlock(&dir->d_inode->i_mutex);
 	ret = simple_rmdir(root->d_inode, dir);
+	d_delete(dir);
+	dput(dir);
 
 bail:
 	mutex_unlock(&root->d_inode->i_mutex);
@@ -573,7 +558,7 @@ bail:
 	return ret;
 }
 
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,36))
+#ifdef HAVE_MOUNT_METHOD
 static struct dentry *qibfs_mount(struct file_system_type *fs_type, int flags,
 			const char *dev_name, void *data)
 {
@@ -581,17 +566,19 @@ static struct dentry *qibfs_mount(struct file_system_type *fs_type, int flags,
 	ret = mount_single(fs_type, flags, data, qibfs_fill_super);
 	if (!IS_ERR(ret))
 		qib_super = ret->d_sb;
-#else
-static int qibfs_get_sb(struct file_system_type *fs_type, int flags,
-			const char *dev_name, void *data, struct vfsmount *mnt)
-{
-	int ret = get_sb_single(fs_type, flags, data,
-					qibfs_fill_super, mnt);
-	if (ret >= 0)
-		qib_super = mnt->mnt_sb;
-#endif
 	return ret;
 }
+#else
+static int qibfs_get_sb(struct file_system_type *fs_type, int flags,
+		const char *dev_name, void *data, struct vfsmount *mnt)
+{
+	int ret = get_sb_single(fs_type, flags, data,
+			qibfs_fill_super, mnt);
+	if (ret >= 0)
+		qib_super = mnt->mnt_sb;
+	return ret;
+}
+#endif
 
 static void qibfs_kill_super(struct super_block *s)
 {
@@ -631,10 +618,10 @@ int qibfs_remove(struct qib_devdata *dd)
 static struct file_system_type qibfs_fs_type = {
 	.owner =        THIS_MODULE,
 	.name =         "ipathfs",
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,36))
+#ifdef HAVE_MOUNT_METHOD
 	.mount =        qibfs_mount,
 #else
-	.get_sb =        qibfs_get_sb,
+        .get_sb =        qibfs_get_sb,
 #endif
 	.kill_sb =      qibfs_kill_super,
 };

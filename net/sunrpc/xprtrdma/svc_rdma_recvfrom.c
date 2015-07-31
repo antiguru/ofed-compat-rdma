@@ -43,6 +43,7 @@
 #include <linux/sunrpc/debug.h>
 #include <linux/sunrpc/rpc_rdma.h>
 #include <linux/spinlock.h>
+#include <linux/highmem.h>
 #include <asm/unaligned.h>
 #include <rdma/ib_verbs.h>
 #include <rdma/rdma_cm.h>
@@ -92,9 +93,7 @@ static void rdma_build_arg_xdr(struct svc_rqst *rqstp,
 		sge_no++;
 	}
 	rqstp->rq_respages = &rqstp->rq_pages[sge_no];
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(3,7,0))
 	rqstp->rq_next_page = rqstp->rq_respages + 1;
-#endif
 
 	/* We should never run out of SGE because the limit is defined to
 	 * support the max allowed RPC data length
@@ -169,9 +168,7 @@ static int rdma_read_chunk_lcl(struct svcxprt_rdma *xprt,
 		if (!pg_off)
 			head->count++;
 		rqstp->rq_respages = &rqstp->rq_arg.pages[pg_no+1];
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(3,7,0))
 		rqstp->rq_next_page = rqstp->rq_respages + 1;
-#endif
 		ctxt->sge[pno].addr =
 			ib_dma_map_page(xprt->sc_cm_id->device,
 					head->arg.pages[pg_no], pg_off,
@@ -276,9 +273,7 @@ static int rdma_read_chunk_frmr(struct svcxprt_rdma *xprt,
 		if (!pg_off)
 			head->count++;
 		rqstp->rq_respages = &rqstp->rq_arg.pages[pg_no+1];
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(3,7,0))
 		rqstp->rq_next_page = rqstp->rq_respages + 1;
-#endif
 		frmr->page_list->page_list[pno] =
 			ib_dma_map_page(xprt->sc_cm_id->device,
 					head->arg.pages[pg_no], 0,
@@ -441,6 +436,32 @@ static int rdma_read_chunks(struct svcxprt_rdma *xprt,
 	return ret;
 }
 
+/*
+ * To avoid a separate RDMA READ just for a handful of zero bytes,
+ * RFC 5666 section 3.7 allows the client to omit the XDR zero pad
+ * in chunk lists.
+ */
+static void
+rdma_fix_xdr_pad(struct xdr_buf *buf)
+{
+	unsigned int page_len = buf->page_len;
+	unsigned int size = (XDR_QUADLEN(page_len) << 2) - page_len;
+	unsigned int offset, pg_no;
+	char *p;
+
+	if (size == 0)
+		return;
+
+	pg_no = page_len >> PAGE_SHIFT;
+	offset = page_len & ~PAGE_MASK;
+	p = page_address(buf->pages[pg_no]);
+	memset(p + offset, 0, size);
+
+	buf->page_len += size;
+	buf->buflen += size;
+	buf->len += size;
+}
+
 static int rdma_read_complete(struct svc_rqst *rqstp,
 			      struct svc_rdma_op_ctxt *head)
 {
@@ -455,17 +476,14 @@ static int rdma_read_complete(struct svc_rqst *rqstp,
 		rqstp->rq_pages[page_no] = head->pages[page_no];
 	}
 	/* Point rq_arg.pages past header */
+	rdma_fix_xdr_pad(&head->arg);
 	rqstp->rq_arg.pages = &rqstp->rq_pages[head->hdr_count];
 	rqstp->rq_arg.page_len = head->arg.page_len;
 	rqstp->rq_arg.page_base = head->arg.page_base;
 
 	/* rq_respages starts after the last arg page */
 	rqstp->rq_respages = &rqstp->rq_arg.pages[page_no];
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0))
-        rqstp->rq_resused = 0;
-#else
-       rqstp->rq_next_page = rqstp->rq_respages + 1;
-#endif
+	rqstp->rq_next_page = rqstp->rq_respages + 1;
 
 	/* Rebuild rq_arg head and tail. */
 	rqstp->rq_arg.head[0] = head->arg.head[0];

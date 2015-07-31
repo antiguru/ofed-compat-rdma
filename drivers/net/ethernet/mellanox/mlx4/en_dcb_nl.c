@@ -62,7 +62,7 @@ static int mlx4_en_ets_validate(struct mlx4_en_priv *priv, struct ieee_ets *ets)
 	int has_ets_tc = 0;
 
 	for (i = 0; i < IEEE_8021QAZ_MAX_TCS; i++) {
-		if (ets->prio_tc[i] > MLX4_EN_NUM_UP) {
+		if (ets->prio_tc[i] >= MLX4_EN_NUM_UP) {
 			en_err(priv, "Bad priority in UP <=> TC mapping. TC: %d, UP: %d\n",
 					i, ets->prio_tc[i]);
 			return -EINVAL;
@@ -203,14 +203,10 @@ static u8 mlx4_en_dcbnl_setdcbx(struct net_device *dev, u8 mode)
 	return 0;
 }
 
+#ifdef HAVE_IEEE_GET_SET_MAXRATE
 #define MLX4_RATELIMIT_UNITS_IN_KB 100000 /* rate-limit HW unit in Kbps */
-#ifdef CONFIG_COMPAT_IS_MAXRATE
 static int mlx4_en_dcbnl_ieee_getmaxrate(struct net_device *dev,
 				   struct ieee_maxrate *maxrate)
-#else
-int mlx4_en_dcbnl_ieee_getmaxrate(struct net_device *dev,
-				  struct ieee_maxrate *maxrate)
-#endif
 {
 	struct mlx4_en_priv *priv = netdev_priv(dev);
 	int i;
@@ -222,13 +218,8 @@ int mlx4_en_dcbnl_ieee_getmaxrate(struct net_device *dev,
 	return 0;
 }
 
-#ifdef CONFIG_COMPAT_IS_MAXRATE
 static int mlx4_en_dcbnl_ieee_setmaxrate(struct net_device *dev,
 		struct ieee_maxrate *maxrate)
-#else
-int mlx4_en_dcbnl_ieee_setmaxrate(struct net_device *dev,
-				  struct ieee_maxrate *maxrate)
-#endif
 {
 	struct mlx4_en_priv *priv = netdev_priv(dev);
 	u16 tmp[IEEE_8021QAZ_MAX_TCS];
@@ -251,11 +242,12 @@ int mlx4_en_dcbnl_ieee_setmaxrate(struct net_device *dev,
 
 	return 0;
 }
+#endif
 
 const struct dcbnl_rtnl_ops mlx4_en_dcbnl_ops = {
 	.ieee_getets	= mlx4_en_dcbnl_ieee_getets,
 	.ieee_setets	= mlx4_en_dcbnl_ieee_setets,
-#ifdef CONFIG_COMPAT_IS_MAXRATE
+#ifdef HAVE_IEEE_GET_SET_MAXRATE
 	.ieee_getmaxrate = mlx4_en_dcbnl_ieee_getmaxrate,
 	.ieee_setmaxrate = mlx4_en_dcbnl_ieee_setmaxrate,
 #endif

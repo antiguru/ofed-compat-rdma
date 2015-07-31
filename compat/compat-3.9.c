@@ -24,7 +24,9 @@
 #include <linux/ppp_defs.h>
 #include <net/flow_keys.h>
 
+#ifdef CONFIG_XPS
 static u32 hashrnd __read_mostly;
+#endif
 
 #define get_xps_queue LINUX_BACKPORT(get_xps_queue)
 static inline int get_xps_queue(struct net_device *dev, struct sk_buff *skb)
@@ -87,3 +89,48 @@ u16 __netdev_pick_tx(struct net_device *dev, struct sk_buff *skb)
 	return queue_index;
 }
 EXPORT_SYMBOL(__netdev_pick_tx);
+
+#define netif_set_xps_queue LINUX_BACKPORT(netif_set_xps_queue)
+int netif_set_xps_queue(struct net_device *dev, struct cpumask *msk, u16 idx)
+{
+#ifdef HAVE_XPS_MAP
+	int i, len, err;
+	char buf[MAX_XPS_BUFFER_SIZE];
+	struct attribute *attr = NULL;
+	struct kobj_type *ktype = NULL;
+	struct mlx4_en_netq_attribute *xps_attr = NULL;
+	struct netdev_queue *txq = netdev_get_tx_queue(dev, idx);
+
+#ifdef HAVE_NET_DEVICE_EXTENDED_TX_EXT
+	struct netdev_tx_queue_extended *txq_ext =
+					netdev_extended(dev)->_tx_ext + idx;
+	ktype = txq_ext->kobj.ktype;
+#else /* HAVE_NET_DEVICE_EXTENDED_TX_EXT */
+	ktype = txq->kobj.ktype;
+#endif /* HAVE_NET_DEVICE_EXTENDED_TX_EXT */
+	if (!ktype)
+		return -ENOMEM;
+
+	for (i = 0; (attr = ktype->default_attrs[i]); i++) {
+		if (!strcmp("xps_cpus", attr->name))
+			break;
+	}
+	if (!attr)
+		return -EINVAL;
+
+	len = bitmap_scnprintf(buf, MAX_XPS_BUFFER_SIZE,
+			       cpumask_bits(msk), MAX_XPS_CPUS);
+	if (!len)
+		return -ENOMEM;
+
+	xps_attr = to_netq_attr(attr);
+	err = xps_attr->store(txq, xps_attr, buf, len);
+	if (err)
+		return -EINVAL;
+
+	return 0;
+#else /* HAVE_XPS_MAP */
+	return -1;
+#endif /* HAVE_XPS_MAP */
+}
+EXPORT_SYMBOL(netif_set_xps_queue);

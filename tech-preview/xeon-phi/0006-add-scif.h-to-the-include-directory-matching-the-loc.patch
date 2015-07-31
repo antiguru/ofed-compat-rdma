@@ -6,15 +6,9 @@ Subject: [PATCH 06/12] add scif.h to the include directory matching the
 
 Signed-off-by: Phil Cayton <phil.cayton@intel.com>
 ---
- include/modules/scif.h | 1748 ++++++++++++++++++++++++++++++++++++++++++++++++
- 1 file changed, 1748 insertions(+)
- create mode 100644 include/modules/scif.h
-
-diff --git a/include/modules/scif.h b/include/modules/scif.h
-new file mode 100644
-index 0000000..f6b1ceb
---- /dev/null
-+++ b/include/modules/scif.h
+diff -urN a5/include/modules/scif.h a6/include/modules/scif.h
+--- a5/include/modules/scif.h	1969-12-31 16:00:00.000000000 -0800
++++ a6/include/modules/scif.h	2015-01-05 14:59:07.370476637 -0800
 @@ -0,0 +1,1748 @@
 +/*
 + * Copyright 2010-2013 Intel Corporation.
@@ -1764,6 +1758,3 @@ index 0000000..f6b1ceb
 +#endif
 +
 +#endif /* __SCIF_H__ */
--- 
-1.8.3.1
-

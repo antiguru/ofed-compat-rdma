@@ -46,6 +46,7 @@
 #include <linux/completion.h>
 #include <linux/slab.h>
 #include <linux/module.h>
+#include <linux/sysctl.h>
 
 #include <rdma/iw_cm.h>
 #include <rdma/ib_addr.h>
@@ -64,6 +65,29 @@ struct iwcm_work {
 	struct iw_cm_event event;
 	struct list_head free_list;
 };
+
+static unsigned int default_backlog = 256;
+
+#ifndef CONFIG_SYSCTL_SYSCALL_CHECK
+static struct ctl_table_header *iwcm_ctl_table_hdr;
+static struct ctl_table iwcm_ctl_table[] = {
+	{
+		.procname	= "default_backlog",
+		.data		= &default_backlog,
+		.maxlen		= sizeof(default_backlog),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+	},
+	{ }
+};
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,5,0)
+static struct ctl_path iwcm_ctl_path[] = {
+	{ .procname = "net" },
+	{ .procname = "iw_cm" },
+	{ }
+};
+#endif
+#endif
 
 /*
  * The following services provide a mechanism for pre-allocating iwcm_work
@@ -181,9 +205,16 @@ static void add_ref(struct iw_cm_id *cm_id)
 static void rem_ref(struct iw_cm_id *cm_id)
 {
 	struct iwcm_id_private *cm_id_priv;
+	int cb_destroy;
+
 	cm_id_priv = container_of(cm_id, struct iwcm_id_private, id);
-	if (iwcm_deref_id(cm_id_priv) &&
-	    test_bit(IWCM_F_CALLBACK_DESTROY, &cm_id_priv->flags)) {
+
+	/*
+	 * Test bit before deref in case the cm_id gets freed on another
+	 * thread.
+	 */
+	cb_destroy = test_bit(IWCM_F_CALLBACK_DESTROY, &cm_id_priv->flags);
+	if (iwcm_deref_id(cm_id_priv) && cb_destroy) {
 		BUG_ON(!list_empty(&cm_id_priv->work_list));
 		free_cm_id(cm_id_priv);
 	}
@@ -327,7 +358,6 @@ static void destroy_cm_id(struct iw_cm_id *cm_id)
 {
 	struct iwcm_id_private *cm_id_priv;
 	unsigned long flags;
-	int ret;
 
 	cm_id_priv = container_of(cm_id, struct iwcm_id_private, id);
 	/*
@@ -343,7 +373,7 @@ static void destroy_cm_id(struct iw_cm_id *cm_id)
 		cm_id_priv->state = IW_CM_STATE_DESTROYING;
 		spin_unlock_irqrestore(&cm_id_priv->lock, flags);
 		/* destroy the listening endpoint */
-		ret = cm_id->device->iwcm->destroy_listen(cm_id);
+		cm_id->device->iwcm->destroy_listen(cm_id);
 		spin_lock_irqsave(&cm_id_priv->lock, flags);
 		break;
 	case IW_CM_STATE_ESTABLISHED:
@@ -418,6 +448,9 @@ int iw_cm_listen(struct iw_cm_id *cm_id, int backlog)
 	int ret;
 
 	cm_id_priv = container_of(cm_id, struct iwcm_id_private, id);
+
+	if (!backlog)
+		backlog = default_backlog;
 
 	ret = alloc_work_entries(cm_id_priv, backlog);
 	if (ret)
@@ -1024,11 +1057,32 @@ static int __init iw_cm_init(void)
 	if (!iwcm_wq)
 		return -ENOMEM;
 
+#ifndef CONFIG_SYSCTL_SYSCALL_CHECK
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,5,0)
+	iwcm_ctl_table_hdr = register_net_sysctl(&init_net, "net/iw_cm",
+						 iwcm_ctl_table);
+#else
+	iwcm_ctl_table_hdr = register_sysctl_paths(iwcm_ctl_path, iwcm_ctl_table);
+#endif
+	if (!iwcm_ctl_table_hdr) {
+		pr_err("iw_cm: couldn't register sysctl paths\n");
+		destroy_workqueue(iwcm_wq);
+		return -ENOMEM;
+	}
+#endif
+
 	return 0;
 }
 
 static void __exit iw_cm_cleanup(void)
 {
+#ifndef CONFIG_SYSCTL_SYSCALL_CHECK
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,5,0)
+	unregister_net_sysctl_table(iwcm_ctl_table_hdr);
+#else
+	unregister_sysctl_table(iwcm_ctl_table_hdr);
+#endif
+#endif
 	destroy_workqueue(iwcm_wq);
 }
 

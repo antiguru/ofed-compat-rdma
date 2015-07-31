@@ -55,10 +55,6 @@ static inline void release_firmware(const struct firmware *fw)
 #if !defined(KEY_RFKILL)
 #define KEY_RFKILL		247	/* Key that controls all radios */
 #endif
-
-#ifndef IFF_DONT_BRIDGE
-#define IFF_DONT_BRIDGE 0x800		/* disallow bridging this ether dev */
-#endif /* IFF_DONT_BRIDGE */
 /* source: include/linux/if.h */
 
 /* this will never happen on older kernels */

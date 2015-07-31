@@ -153,6 +153,7 @@ static inline int insert_handle(struct iwch_dev *rhp, struct idr *idr,
 				void *handle, u32 id)
 {
 	int ret;
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 9, 0)
 	idr_preload(GFP_KERNEL);
 	spin_lock_irq(&rhp->lock);

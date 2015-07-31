@@ -10,29 +10,21 @@ routines.
 
 Also update mthca to support these changes
 ---
- drivers/infiniband/core/umem.c              | 128 +++++++++++++++++++++++++---
- drivers/infiniband/hw/mthca/mthca_memfree.c |  56 ++++++++++++
- include/rdma/ib_verbs.h                     |  11 +++
- 3 files changed, 184 insertions(+), 11 deletions(-)
-
-diff --git a/drivers/infiniband/core/umem.c b/drivers/infiniband/core/umem.c
-index a841123..0c55b7e 100644
---- a/drivers/infiniband/core/umem.c
-+++ b/drivers/infiniband/core/umem.c
-@@ -58,8 +58,12 @@ static void __ib_umem_release(struct ib_device *dev, struct ib_umem *umem, int d
- 		for (i = 0; i < chunk->nents; ++i) {
- 			struct page *page = sg_page(&chunk->page_list[i]);
+diff -urN a3/drivers/infiniband/core/umem.c a4/drivers/infiniband/core/umem.c
+--- a3/drivers/infiniband/core/umem.c	2015-01-05 14:12:52.117593540 -0800
++++ a4/drivers/infiniband/core/umem.c	2015-01-05 14:41:51.927520253 -0800
+@@ -57,6 +57,10 @@
+ 	for_each_sg(umem->sg_head.sgl, sg, umem->npages, i) {
  
-+			if (!pfn_valid(page_to_pfn(page)))
-+				continue;
+ 		page = sg_page(sg);
 +
- 			if (umem->writable && dirty)
- 				set_page_dirty_lock(page);
++		if (!pfn_valid(page_to_pfn(page)))
++			continue;
 +
- 			put_page(page);
- 		}
- 
-@@ -68,14 +72,71 @@ static void __ib_umem_release(struct ib_device *dev, struct ib_umem *umem, int d
+ 		if (umem->writable && dirty)
+ 			set_page_dirty_lock(page);
+ 		put_page(page);
+@@ -68,14 +72,71 @@
  }
  
  /**
@@ -106,7 +98,7 @@ index a841123..0c55b7e 100644
  			    size_t size, int access, int dmasync)
  {
  	struct ib_umem *umem;
-@@ -101,7 +162,6 @@ struct ib_umem *ib_umem_get(struct ib_ucontext *context, unsigned long addr,
+@@ -101,7 +162,6 @@
  	if (!umem)
  		return ERR_PTR(-ENOMEM);
  
@@ -114,9 +106,9 @@ index a841123..0c55b7e 100644
  	umem->length    = size;
  	umem->offset    = addr & ~PAGE_MASK;
  	umem->page_size = PAGE_SIZE;
-@@ -149,11 +209,18 @@ struct ib_umem *ib_umem_get(struct ib_ucontext *context, unsigned long addr,
+@@ -163,11 +223,18 @@
+ 	sg_list_start = umem->sg_head.sgl;
  
- 	ret = 0;
  	while (npages) {
 +
  		ret = get_user_pages(current, current->mm, cur_base,
@@ -133,32 +125,7 @@ index a841123..0c55b7e 100644
  		if (ret < 0)
  			goto out;
  
-@@ -177,7 +244,8 @@ struct ib_umem *ib_umem_get(struct ib_ucontext *context, unsigned long addr,
- 				if (vma_list &&
- 				    !is_vm_hugetlb_page(vma_list[i + off]))
- 					umem->hugetlb = 0;
--				sg_set_page(&chunk->page_list[i], page_list[i + off], PAGE_SIZE, 0);
-+				sg_set_page(&chunk->page_list[i],
-+					page_list[i + off], PAGE_SIZE, 0);
- 			}
- 
- 			chunk->nmap = ib_dma_map_sg_attrs(context->device,
-@@ -186,8 +254,12 @@ struct ib_umem *ib_umem_get(struct ib_ucontext *context, unsigned long addr,
- 							  DMA_BIDIRECTIONAL,
- 							  &attrs);
- 			if (chunk->nmap <= 0) {
--				for (i = 0; i < chunk->nents; ++i)
--					put_page(sg_page(&chunk->page_list[i]));
-+				for (i = 0; i < chunk->nents; ++i) {
-+					struct page *page =
-+						sg_page(&chunk->page_list[i]);
-+					if (pfn_valid(page_to_pfn(page)))
-+						put_page(page);
-+				}
- 				kfree(chunk);
- 
- 				ret = -ENOMEM;
-@@ -216,7 +288,6 @@ out:
+@@ -219,7 +286,6 @@
  
  	return ret < 0 ? ERR_PTR(ret) : umem;
  }
@@ -166,7 +133,7 @@ index a841123..0c55b7e 100644
  
  static void ib_umem_account(struct work_struct *work)
  {
-@@ -230,10 +301,10 @@ static void ib_umem_account(struct work_struct *work)
+@@ -237,10 +303,10 @@
  }
  
  /**
@@ -179,8 +146,8 @@ index a841123..0c55b7e 100644
  {
  	struct ib_ucontext *context = umem->context;
  	struct mm_struct *mm;
-@@ -274,9 +345,8 @@ void ib_umem_release(struct ib_umem *umem)
- 	mmput(mm);
+@@ -290,9 +356,8 @@
+ out:
  	kfree(umem);
  }
 -EXPORT_SYMBOL(ib_umem_release);
@@ -188,9 +155,9 @@ index a841123..0c55b7e 100644
 -int ib_umem_page_count(struct ib_umem *umem)
 +int ib_page_count_umem(struct ib_umem *umem)
  {
- 	struct ib_umem_chunk *chunk;
  	int shift;
-@@ -292,4 +362,40 @@ int ib_umem_page_count(struct ib_umem *umem)
+ 	int i;
+@@ -307,4 +372,40 @@
  
  	return n;
  }
@@ -231,10 +198,9 @@ index a841123..0c55b7e 100644
 +		ops->page_count(umem) : ib_page_count_umem(umem);
 +}
  EXPORT_SYMBOL(ib_umem_page_count);
-diff --git a/drivers/infiniband/hw/mthca/mthca_memfree.c b/drivers/infiniband/hw/mthca/mthca_memfree.c
-index 7d2e42d..694f971 100644
---- a/drivers/infiniband/hw/mthca/mthca_memfree.c
-+++ b/drivers/infiniband/hw/mthca/mthca_memfree.c
+diff -urN a3/drivers/infiniband/hw/mthca/mthca_memfree.c a4/drivers/infiniband/hw/mthca/mthca_memfree.c
+--- a3/drivers/infiniband/hw/mthca/mthca_memfree.c	2015-01-05 14:12:52.112593540 -0800
++++ a4/drivers/infiniband/hw/mthca/mthca_memfree.c	2015-01-05 14:36:00.825535043 -0800
 @@ -39,6 +39,12 @@
  
  #include <asm/page.h>
@@ -248,7 +214,7 @@ index 7d2e42d..694f971 100644
  #include "mthca_memfree.h"
  #include "mthca_dev.h"
  #include "mthca_cmd.h"
-@@ -56,7 +62,11 @@ struct mthca_user_db_table {
+@@ -56,7 +62,11 @@
  	struct mutex mutex;
  	struct {
  		u64                uvirt;
@@ -260,7 +226,7 @@ index 7d2e42d..694f971 100644
  		int                refcount;
  	}                page[0];
  };
-@@ -446,7 +456,12 @@ static u64 mthca_uarc_virt(struct mthca_dev *dev, struct mthca_uar *uar, int pag
+@@ -446,7 +456,12 @@
  int mthca_map_user_db(struct mthca_dev *dev, struct mthca_uar *uar,
  		      struct mthca_user_db_table *db_tab, int index, u64 uaddr)
  {
@@ -273,7 +239,7 @@ index 7d2e42d..694f971 100644
  	int ret = 0;
  	int i;
  
-@@ -472,6 +487,22 @@ int mthca_map_user_db(struct mthca_dev *dev, struct mthca_uar *uar,
+@@ -472,6 +487,22 @@
  		goto out;
  	}
  
@@ -296,7 +262,7 @@ index 7d2e42d..694f971 100644
  	ret = get_user_pages(current, current->mm, uaddr & PAGE_MASK, 1, 1, 0,
  			     pages, NULL);
  	if (ret < 0)
-@@ -488,9 +519,14 @@ int mthca_map_user_db(struct mthca_dev *dev, struct mthca_uar *uar,
+@@ -488,9 +519,14 @@
  
  	ret = mthca_MAP_ICM_page(dev, sg_dma_address(&db_tab->page[i].mem),
  				 mthca_uarc_virt(dev, uar, i));
@@ -311,7 +277,7 @@ index 7d2e42d..694f971 100644
  		goto out;
  	}
  
-@@ -505,6 +541,9 @@ out:
+@@ -505,6 +541,9 @@
  void mthca_unmap_user_db(struct mthca_dev *dev, struct mthca_uar *uar,
  			 struct mthca_user_db_table *db_tab, int index)
  {
@@ -321,7 +287,7 @@ index 7d2e42d..694f971 100644
  	if (!mthca_is_memfree(dev))
  		return;
  
-@@ -515,7 +554,16 @@ void mthca_unmap_user_db(struct mthca_dev *dev, struct mthca_uar *uar,
+@@ -515,7 +554,16 @@
  
  	mutex_lock(&db_tab->mutex);
  
@@ -338,7 +304,7 @@ index 7d2e42d..694f971 100644
  
  	mutex_unlock(&db_tab->mutex);
  }
-@@ -538,7 +586,11 @@ struct mthca_user_db_table *mthca_init_user_db_tab(struct mthca_dev *dev)
+@@ -538,7 +586,11 @@
  	for (i = 0; i < npages; ++i) {
  		db_tab->page[i].refcount = 0;
  		db_tab->page[i].uvirt    = 0;
@@ -350,7 +316,7 @@ index 7d2e42d..694f971 100644
  	}
  
  	return db_tab;
-@@ -555,8 +607,12 @@ void mthca_cleanup_user_db_tab(struct mthca_dev *dev, struct mthca_uar *uar,
+@@ -555,8 +607,12 @@
  	for (i = 0; i < dev->uar_table.uarc_size / MTHCA_ICM_PAGE_SIZE; ++i) {
  		if (db_tab->page[i].uvirt) {
  			mthca_UNMAP_ICM(dev, mthca_uarc_virt(dev, uar, i), 1);
@@ -363,11 +329,10 @@ index 7d2e42d..694f971 100644
  		}
  	}
  
-diff --git a/include/rdma/ib_verbs.h b/include/rdma/ib_verbs.h
-index 0137d0e..b4c2192 100644
---- a/include/rdma/ib_verbs.h
-+++ b/include/rdma/ib_verbs.h
-@@ -953,7 +953,18 @@ struct ib_fmr_attr {
+diff -urN a3/include/rdma/ib_verbs.h a4/include/rdma/ib_verbs.h
+--- a3/include/rdma/ib_verbs.h	2015-01-05 14:18:48.871578512 -0800
++++ a4/include/rdma/ib_verbs.h	2015-01-05 14:36:00.826535043 -0800
+@@ -1122,7 +1122,18 @@
  	u8	page_shift;
  };
  
@@ -386,6 +351,3 @@ index 0137d0e..b4c2192 100644
  	struct ib_device       *device;
  	struct list_head	pd_list;
  	struct list_head	mr_list;
--- 
-1.8.3.1
-

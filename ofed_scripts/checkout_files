@@ -1,4 +1,3 @@
-Documentation/infiniband/
 drivers/infiniband/
 drivers/net/ethernet/chelsio/cxgb3/
 drivers/net/ethernet/chelsio/cxgb4/
@@ -15,5 +14,5 @@ net/sunrpc/xprtrdma
 drivers/scsi/Makefile
 drivers/scsi/scsi_priv.h
 drivers/scsi/scsi_transport_srp.c
-drivers/scsi/scsi_transport_srp_internal.h
+drivers/scsi/cxgbi/
 include/scsi/scsi_transport_srp.h

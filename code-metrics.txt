@@ -1,23 +1,23 @@
 
 [36mcompat-rdma code metrics[00m
 
-[35m    380432[00m - Total upstream lines of code being pulled
-[01;32m      3284[00m - backport code changes
-[01;32m      2840[00m - backport code additions
-[01;32m       444[00m - backport code deletions
-[01;32m     12432[00m - backport from compat module
-[01;32m     15716[00m - total backport code
-[31m    4.1311[00m - % of code consists of backport work
-[01;33m    183241[00m - Code changes brought in from linux-next
-[01;33m    125287[00m - Code additions brought in from linux-next
-[01;33m     57954[00m - Code deletions brought in from linux-next
-[31m   48.1666[00m - % of code being cherry picked from linux-next
-[01;33m       308[00m - Code changes posted but not yet merged
-[01;33m       198[00m - Code additions posted but not yet merged
-[01;33m       110[00m - Code deletions posted but not yet merged
-[31m    0.0810[00m - % of code not yet merged
+[35m    414390[00m - Total upstream lines of code being pulled
+[01;32m     68554[00m - backport code changes
+[01;32m     68157[00m - backport code additions
+[01;32m       397[00m - backport code deletions
+[01;32m     13433[00m - backport from compat module
+[01;32m     81987[00m - total backport code
+[31m   19.7850[00m - % of code consists of backport work
+[01;33m       122[00m - Code changes brought in from linux-next
+[01;33m        87[00m - Code additions brought in from linux-next
+[01;33m        35[00m - Code deletions brought in from linux-next
+[31m    0.0294[00m - % of code being cherry picked from linux-next
+[01;33m      1618[00m - Code changes posted but not yet merged
+[01;33m      1410[00m - Code additions posted but not yet merged
+[01;33m       208[00m - Code deletions posted but not yet merged
+[31m    0.3905[00m - % of code not yet merged
 
 Base tree: [01;32munknown[00m
-Base tree version: [35mf9e9918[00m
-compat.git: [36mcompat-2014-01-30-7-g26dbe26[00m
-compat-rdma release: [01;33mg561c555-np[00m
+Base tree version: [35m4b9e97b[00m
+compat.git: [36mcompat-2014-01-30-52-g70bfc31[00m
+compat-rdma release: [01;33mg90ee622-np[00m

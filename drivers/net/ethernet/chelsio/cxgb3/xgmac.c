@@ -332,6 +332,7 @@ int t3_mac_set_rx_mode(struct cmac *mac, struct net_device *dev)
 						dmi->dmi_addr);
 #endif
 			else {
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 35)
 				int hash = hash_hw_addr(ha->addr);
 #else

@@ -122,7 +122,7 @@ static struct ib_ucontext *c4iw_alloc_ucontext(struct ib_device *ibdev,
 	INIT_LIST_HEAD(&context->mmaps);
 	spin_lock_init(&context->mmap_lock);
 
-	if (udata->outlen < sizeof(uresp)) {
+	if (udata->outlen < sizeof(uresp) - sizeof(uresp.reserved)) {
 		if (!warned++)
 			pr_err(MOD "Warning - downlevel libcxgb4 (non-fatal), device status page disabled.");
 		rhp->rdev.flags |= T4_STATUS_PAGE_DISABLED;
@@ -140,7 +140,8 @@ static struct ib_ucontext *c4iw_alloc_ucontext(struct ib_device *ibdev,
 		context->key += PAGE_SIZE;
 		spin_unlock(&context->mmap_lock);
 
-		ret = ib_copy_to_udata(udata, &uresp, sizeof(uresp));
+		ret = ib_copy_to_udata(udata, &uresp,
+				       sizeof(uresp) - sizeof(uresp.reserved));
 		if (ret)
 			goto err_mm;
 
@@ -317,14 +318,16 @@ static int c4iw_query_device(struct ib_device *ibdev,
 	props->vendor_id = (u32)dev->rdev.lldi.pdev->vendor;
 	props->vendor_part_id = (u32)dev->rdev.lldi.pdev->device;
 	props->max_mr_size = T4_MAX_MR_SIZE;
-	props->max_qp = T4_MAX_NUM_QP;
-	props->max_qp_wr = T4_MAX_QP_DEPTH;
+	props->max_qp = dev->rdev.lldi.vr->qp.size / 2;
+	props->max_qp_wr = dev->rdev.hw_queue.t4_max_qp_depth;
 	props->max_sge = T4_MAX_RECV_SGE;
 	props->max_sge_rd = 1;
-	props->max_qp_rd_atom = c4iw_max_read_depth;
-	props->max_qp_init_rd_atom = c4iw_max_read_depth;
-	props->max_cq = T4_MAX_NUM_CQ;
-	props->max_cqe = T4_MAX_CQ_DEPTH;
+	props->max_res_rd_atom = dev->rdev.lldi.max_ird_adapter;
+	props->max_qp_rd_atom = min(dev->rdev.lldi.max_ordird_qp,
+				    c4iw_max_read_depth);
+	props->max_qp_init_rd_atom = props->max_qp_rd_atom;
+	props->max_cq = dev->rdev.lldi.vr->qp.size;
+	props->max_cqe = dev->rdev.hw_queue.t4_max_cq_depth;
 	props->max_mr = c4iw_num_stags(&dev->rdev);
 	props->max_pd = T4_MAX_NUM_PD;
 	props->local_ca_ack_delay = 0;

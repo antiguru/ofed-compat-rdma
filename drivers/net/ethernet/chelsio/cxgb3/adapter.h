@@ -45,19 +45,9 @@
 #include "t3cdev.h"
 #include <asm/io.h>
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 1, 0)
-struct vlan_group;
-#endif
 struct adapter;
 struct sge_qset;
 struct port_info;
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
-enum {                 /* rx_offload flags */
-	T3_RX_CSUM      = 1 << 0,
-	T3_LRO          = 1 << 1,
-};
-#endif
 
 enum mac_idx_types {
 	LAN_MAC_IDX	= 0,
@@ -80,9 +70,6 @@ struct port_info {
 #endif
 	struct sge_qset *qs;
 	u8 port_id;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
-	u8 rx_offload;
-#endif
 	u8 nqsets;
 	u8 first_qset;
 	struct cphy phy;

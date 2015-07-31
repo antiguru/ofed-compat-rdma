@@ -5,26 +5,10 @@ From: Jubin John <jubin.john@intel.com>
 Reviewed-by: Mike Marciniszyn <mike.marciniszyn@intel.com>
 Signed-off-by: Jubin John <jubin.john@intel.com>
 ---
- drivers/infiniband/hw/qib/Makefile         |    5 
- drivers/infiniband/hw/qib/qib.h            |   19 
- drivers/infiniband/hw/qib/qib_common.h     |    7 
- drivers/infiniband/hw/qib/qib_file_ops.c   |  334 +++++-
- drivers/infiniband/hw/qib/qib_init.c       |   16 
- drivers/infiniband/hw/qib/qib_knx.c        | 1532 ++++++++++++++++++++++++++++
- drivers/infiniband/hw/qib/qib_knx.h        |   74 +
- drivers/infiniband/hw/qib/qib_knx_common.h |  126 ++
- drivers/infiniband/hw/qib/qib_user_sdma.c  |  173 +--
- drivers/infiniband/hw/qib/qib_user_sdma.h  |  106 ++
- 10 files changed, 2241 insertions(+), 151 deletions(-)
- create mode 100644 drivers/infiniband/hw/qib/qib_knx.c
- create mode 100644 drivers/infiniband/hw/qib/qib_knx.h
- create mode 100644 drivers/infiniband/hw/qib/qib_knx_common.h
-
-diff --git a/drivers/infiniband/hw/qib/Makefile b/drivers/infiniband/hw/qib/Makefile
-index 57f8103..ba2a49d 100644
---- a/drivers/infiniband/hw/qib/Makefile
-+++ b/drivers/infiniband/hw/qib/Makefile
-@@ -14,3 +14,8 @@ ib_qib-$(CONFIG_PCI_MSI) += qib_iba6120.o
+diff -urN a9/drivers/infiniband/hw/qib/Makefile a10/drivers/infiniband/hw/qib/Makefile
+--- a9/drivers/infiniband/hw/qib/Makefile	2015-01-05 15:05:04.280461602 -0800
++++ a10/drivers/infiniband/hw/qib/Makefile	2015-01-05 15:10:58.250446692 -0800
+@@ -14,3 +14,8 @@
  ib_qib-$(CONFIG_X86_64) += qib_wc_x86_64.o
  ib_qib-$(CONFIG_PPC64) += qib_wc_ppc64.o
  ib_qib-$(CONFIG_DEBUG_FS) += qib_debugfs.o
@@ -33,68 +17,16 @@ index 57f8103..ba2a49d 100644
 +ib_qib-y += qib_knx.o
 +ccflags-y += -DQIB_CONFIG_KNX
 +endif
-diff --git a/drivers/infiniband/hw/qib/qib.h b/drivers/infiniband/hw/qib/qib.h
-index 1946101..85c078e 100644
---- a/drivers/infiniband/hw/qib/qib.h
-+++ b/drivers/infiniband/hw/qib/qib.h
-@@ -234,6 +234,10 @@ struct qib_ctxtdata {
- 	u32 lookaside_qpn;
- 	/* QPs waiting for context processing */
- 	struct list_head qp_wait_list;
-+#ifdef QIB_CONFIG_KNX
-+	/* KNX Receive Context Data */
-+	struct qib_knx_ctxt *krcd;
-+#endif
- #ifdef CONFIG_DEBUG_FS
- 	/* verbs stats per CTX */
- 	struct qib_opcode_stats_perctx *opstats;
-@@ -1104,6 +1108,11 @@ struct qib_devdata {
- 	struct kthread_worker *worker;
- 
- 	int assigned_node_id; /* NUMA node closest to HCA */
-+
-+#ifdef QIB_CONFIG_KNX
-+	/* number of KNx nodes using this device */
-+	u16 num_knx;
-+#endif
- };
- 
- /* hol_state values */
-@@ -1132,6 +1141,9 @@ struct qib_filedata {
- 	unsigned tidcursor;
- 	struct qib_user_sdma_queue *pq;
- 	int rec_cpu_num; /* for cpu affinity; -1 if none */
-+#ifdef QIB_CONFIG_KNX
-+	u16 knx_node_id;
-+#endif
- };
- 
- extern struct list_head qib_dev_list;
-@@ -1209,6 +1221,13 @@ int qib_set_uevent_bits(struct qib_pportdata *, const int);
- 	(((struct qib_filedata *)(fp)->private_data)->tidcursor)
- #define user_sdma_queue_fp(fp) \
- 	(((struct qib_filedata *)(fp)->private_data)->pq)
-+#ifdef QIB_CONFIG_KNX
-+#define knx_node_fp(fp) \
-+	(((struct qib_filedata *)(fp)->private_data)->knx_node_id)
-+#else
-+/* allow the use of knx_node_fp() outside of a #ifdef QIB_CONFIG_KNX */
-+#define knx_node_fp(fp) 0
-+#endif
- 
- static inline struct qib_devdata *dd_from_ppd(struct qib_pportdata *ppd)
- {
-diff --git a/drivers/infiniband/hw/qib/qib_common.h b/drivers/infiniband/hw/qib/qib_common.h
-index 5670ace..39eef25 100644
---- a/drivers/infiniband/hw/qib/qib_common.h
-+++ b/drivers/infiniband/hw/qib/qib_common.h
+diff -urN a9/drivers/infiniband/hw/qib/qib_common.h a10/drivers/infiniband/hw/qib/qib_common.h
+--- a9/drivers/infiniband/hw/qib/qib_common.h	2015-01-05 15:05:04.281461602 -0800
++++ a10/drivers/infiniband/hw/qib/qib_common.h	2015-01-05 15:10:58.250446692 -0800
 @@ -1,4 +1,5 @@
  /*
 + * Copyright (c) 2012 Intel Corporation. All rights reserved.
   * Copyright (c) 2006, 2007, 2008, 2009, 2010 QLogic Corporation.
   * All rights reserved.
   * Copyright (c) 2003, 2004, 2005, 2006 PathScale, Inc. All rights reserved.
-@@ -337,8 +338,12 @@ struct qib_user_info {
+@@ -337,8 +338,12 @@
  	 * Should be set to QIB_USER_SWVERSION.
  	 */
  	__u32 spu_userversion;
@@ -108,11 +40,10 @@ index 5670ace..39eef25 100644
  
  	/* size of struct base_info to write to */
  	__u32 spu_base_info_size;
-diff --git a/drivers/infiniband/hw/qib/qib_file_ops.c b/drivers/infiniband/hw/qib/qib_file_ops.c
-index c062c60..93ca1f9 100644
---- a/drivers/infiniband/hw/qib/qib_file_ops.c
-+++ b/drivers/infiniband/hw/qib/qib_file_ops.c
-@@ -53,6 +53,7 @@
+diff -urN a9/drivers/infiniband/hw/qib/qib_file_ops.c a10/drivers/infiniband/hw/qib/qib_file_ops.c
+--- a9/drivers/infiniband/hw/qib/qib_file_ops.c	2015-01-05 15:05:04.280461602 -0800
++++ a10/drivers/infiniband/hw/qib/qib_file_ops.c	2015-01-05 15:10:58.251446692 -0800
+@@ -48,6 +48,7 @@
  #include "qib.h"
  #include "qib_common.h"
  #include "qib_user_sdma.h"
@@ -120,7 +51,7 @@ index c062c60..93ca1f9 100644
  
  #undef pr_fmt
  #define pr_fmt(fmt) QIB_DRV_NAME ": " fmt
-@@ -64,6 +65,9 @@ static ssize_t qib_aio_write(struct kiocb *, const struct iovec *,
+@@ -59,6 +60,9 @@
  			     unsigned long, loff_t);
  static unsigned int qib_poll(struct file *, struct poll_table_struct *);
  static int qib_mmapf(struct file *, struct vm_area_struct *);
@@ -130,7 +61,7 @@ index c062c60..93ca1f9 100644
  
  static const struct file_operations qib_file_ops = {
  	.owner = THIS_MODULE,
-@@ -94,6 +98,64 @@ static u64 cvt_kvaddr(void *p)
+@@ -89,6 +93,64 @@
  	return paddr;
  }
  
@@ -195,7 +126,7 @@ index c062c60..93ca1f9 100644
  static int qib_get_base_info(struct file *fp, void __user *ubase,
  			     size_t ubase_size)
  {
-@@ -182,14 +244,43 @@ static int qib_get_base_info(struct file *fp, void __user *ubase,
+@@ -177,14 +239,43 @@
  	 */
  	kinfo->spi_rcvhdr_base = (u64) rcd->rcvhdrq_phys;
  	kinfo->spi_rcvhdr_tailaddr = (u64) rcd->rcvhdrqtailaddr_phys;
@@ -244,7 +175,7 @@ index c062c60..93ca1f9 100644
  	if (!shared) {
  		kinfo->spi_piocnt = rcd->piocnt;
  		kinfo->spi_piobufbase = (u64) rcd->piobufs;
-@@ -209,7 +300,11 @@ static int qib_get_base_info(struct file *fp, void __user *ubase,
+@@ -204,7 +295,11 @@
  			dd->palign * kinfo->spi_piocnt * slave;
  	}
  
@@ -257,7 +188,7 @@ index c062c60..93ca1f9 100644
  		kinfo->spi_sendbuf_status =
  			cvt_kvaddr(&rcd->user_event_mask[subctxt_fp(fp)]);
  		/* only spi_subctxt_* fields should be set in this block! */
-@@ -230,6 +325,11 @@ static int qib_get_base_info(struct file *fp, void __user *ubase,
+@@ -225,6 +320,11 @@
  	kinfo->spi_pioindex = (kinfo->spi_piobufbase - dd->pio2k_bufbase) /
  		dd->palign;
  	kinfo->spi_pioalign = dd->palign;
@@ -269,7 +200,7 @@ index c062c60..93ca1f9 100644
  	kinfo->spi_qpair = QIB_KD_QP;
  	/*
  	 * user mode PIO buffers are always 2KB, even when 4KB can
-@@ -1270,6 +1370,17 @@ static int init_subctxts(struct qib_devdata *dd,
+@@ -1261,6 +1361,17 @@
  		goto bail;
  	}
  
@@ -287,7 +218,7 @@ index c062c60..93ca1f9 100644
  	rcd->subctxt_uregbase = vmalloc_user(PAGE_SIZE * num_subctxts);
  	if (!rcd->subctxt_uregbase) {
  		ret = -ENOMEM;
-@@ -1292,6 +1403,9 @@ static int init_subctxts(struct qib_devdata *dd,
+@@ -1283,6 +1394,9 @@
  		goto bail_rhdr;
  	}
  
@@ -297,7 +228,7 @@ index c062c60..93ca1f9 100644
  	rcd->subctxt_cnt = uinfo->spu_subctxt_cnt;
  	rcd->subctxt_id = uinfo->spu_subctxt_id;
  	rcd->active_slaves = 1;
-@@ -1326,6 +1440,14 @@ static int setup_ctxt(struct qib_pportdata *ppd, int ctxt,
+@@ -1317,6 +1431,14 @@
  
  	rcd = qib_create_ctxtdata(ppd, ctxt, numa_id);
  
@@ -312,7 +243,7 @@ index c062c60..93ca1f9 100644
  	/*
  	 * Allocate memory for use in qib_tid_update() at open to
  	 * reduce cost of expected send setup per message segment
-@@ -1341,7 +1463,11 @@ static int setup_ctxt(struct qib_pportdata *ppd, int ctxt,
+@@ -1332,7 +1454,11 @@
  		ret = -ENOMEM;
  		goto bailerr;
  	}
@@ -324,7 +255,7 @@ index c062c60..93ca1f9 100644
  	ret = init_subctxts(dd, rcd, uinfo);
  	if (ret)
  		goto bailerr;
-@@ -1498,43 +1624,68 @@ done:
+@@ -1489,43 +1615,68 @@
  static int find_shared_ctxt(struct file *fp,
  			    const struct qib_user_info *uinfo)
  {
@@ -418,7 +349,7 @@ index c062c60..93ca1f9 100644
  done:
  	return ret;
  }
-@@ -1626,6 +1777,13 @@ static int qib_assign_ctxt(struct file *fp, const struct qib_user_info *uinfo)
+@@ -1617,6 +1768,13 @@
  
  	if (swminor >= 11 && uinfo->spu_port_alg < QIB_PORT_ALG_COUNT)
  		alg = uinfo->spu_port_alg;
@@ -432,7 +363,7 @@ index c062c60..93ca1f9 100644
  
  	mutex_lock(&qib_mutex);
  
-@@ -1633,13 +1791,38 @@ static int qib_assign_ctxt(struct file *fp, const struct qib_user_info *uinfo)
+@@ -1624,13 +1782,38 @@
  	    uinfo->spu_subctxt_cnt) {
  		ret = find_shared_ctxt(fp, uinfo);
  		if (ret > 0) {
@@ -472,7 +403,7 @@ index c062c60..93ca1f9 100644
  	i_minor = iminor(file_inode(fp)) - QIB_USER_MINOR_BASE;
  	if (i_minor)
  		ret = find_free_ctxt(i_minor - 1, fp, uinfo);
-@@ -1648,7 +1831,6 @@ static int qib_assign_ctxt(struct file *fp, const struct qib_user_info *uinfo)
+@@ -1639,7 +1822,6 @@
  		const unsigned int cpu = cpumask_first(&current->cpus_allowed);
  		const unsigned int weight =
  			cpumask_weight(&current->cpus_allowed);
@@ -480,7 +411,7 @@ index c062c60..93ca1f9 100644
  		if (weight == 1 && !test_bit(cpu, qib_cpulist))
  			if (!find_hca(cpu, &unit) && unit >= 0)
  				if (!find_free_ctxt(unit, fp, uinfo)) {
-@@ -1659,9 +1841,21 @@ static int qib_assign_ctxt(struct file *fp, const struct qib_user_info *uinfo)
+@@ -1650,9 +1832,21 @@
  	}
  
  done_chk_sdma:
@@ -503,7 +434,7 @@ index c062c60..93ca1f9 100644
  	mutex_unlock(&qib_mutex);
  
  done:
-@@ -1676,11 +1870,25 @@ static int qib_do_user_init(struct file *fp,
+@@ -1667,11 +1861,25 @@
  	struct qib_ctxtdata *rcd = ctxt_fp(fp);
  	struct qib_devdata *dd;
  	unsigned uctxt;
@@ -529,7 +460,7 @@ index c062c60..93ca1f9 100644
  		goto bail;
  	}
  
-@@ -1731,6 +1939,41 @@ static int qib_do_user_init(struct file *fp,
+@@ -1722,6 +1930,41 @@
  	 */
  	dd->f_sendctrl(dd->pport, QIB_SENDCTRL_AVAIL_BLIP);
  
@@ -571,7 +502,7 @@ index c062c60..93ca1f9 100644
  	/*
  	 * Now allocate the rcvhdr Q and eager TIDs; skip the TID
  	 * array for time being.  If rcd->ctxt > chip-supported,
-@@ -1740,6 +1983,9 @@ static int qib_do_user_init(struct file *fp,
+@@ -1731,6 +1974,9 @@
  	ret = qib_create_rcvhdrq(dd, rcd);
  	if (!ret)
  		ret = qib_setup_eagerbufs(rcd);
@@ -581,7 +512,7 @@ index c062c60..93ca1f9 100644
  	if (ret)
  		goto bail_pio;
  
-@@ -1837,6 +2083,13 @@ static int qib_close(struct inode *in, struct file *fp)
+@@ -1828,6 +2074,13 @@
  
  	/* drain user sdma queue */
  	if (fd->pq) {
@@ -595,7 +526,7 @@ index c062c60..93ca1f9 100644
  		qib_user_sdma_queue_drain(rcd->ppd, fd->pq);
  		qib_user_sdma_queue_destroy(fd->pq);
  	}
-@@ -1894,6 +2147,12 @@ static int qib_close(struct inode *in, struct file *fp)
+@@ -1885,6 +2138,12 @@
  	}
  
  	mutex_unlock(&qib_mutex);
@@ -608,7 +539,7 @@ index c062c60..93ca1f9 100644
  	qib_free_ctxtdata(dd, rcd); /* after releasing the mutex */
  
  bail:
-@@ -2179,6 +2438,13 @@ static ssize_t qib_write(struct file *fp, const char __user *data,
+@@ -2170,6 +2429,13 @@
  		ret = qib_assign_ctxt(fp, &cmd.cmd.user_info);
  		if (ret)
  			goto bail;
@@ -622,10 +553,59 @@ index c062c60..93ca1f9 100644
  		break;
  
  	case QIB_CMD_USER_INIT:
-diff --git a/drivers/infiniband/hw/qib/qib_init.c b/drivers/infiniband/hw/qib/qib_init.c
-index 17e0831..f8992f7 100644
---- a/drivers/infiniband/hw/qib/qib_init.c
-+++ b/drivers/infiniband/hw/qib/qib_init.c
+diff -urN a9/drivers/infiniband/hw/qib/qib.h a10/drivers/infiniband/hw/qib/qib.h
+--- a9/drivers/infiniband/hw/qib/qib.h	2015-01-05 15:05:04.280461602 -0800
++++ a10/drivers/infiniband/hw/qib/qib.h	2015-01-05 15:10:58.250446692 -0800
+@@ -234,6 +234,10 @@
+ 	u32 lookaside_qpn;
+ 	/* QPs waiting for context processing */
+ 	struct list_head qp_wait_list;
++#ifdef QIB_CONFIG_KNX
++	/* KNX Receive Context Data */
++	struct qib_knx_ctxt *krcd;
++#endif
+ #ifdef CONFIG_DEBUG_FS
+ 	/* verbs stats per CTX */
+ 	struct qib_opcode_stats_perctx *opstats;
+@@ -1106,6 +1110,11 @@
+ 	struct kthread_worker *worker;
+ 
+ 	int assigned_node_id; /* NUMA node closest to HCA */
++
++#ifdef QIB_CONFIG_KNX
++	/* number of KNx nodes using this device */
++	u16 num_knx;
++#endif
+ };
+ 
+ /* hol_state values */
+@@ -1134,6 +1143,9 @@
+ 	unsigned tidcursor;
+ 	struct qib_user_sdma_queue *pq;
+ 	int rec_cpu_num; /* for cpu affinity; -1 if none */
++#ifdef QIB_CONFIG_KNX
++	u16 knx_node_id;
++#endif
+ };
+ 
+ extern struct list_head qib_dev_list;
+@@ -1211,6 +1223,13 @@
+ 	(((struct qib_filedata *)(fp)->private_data)->tidcursor)
+ #define user_sdma_queue_fp(fp) \
+ 	(((struct qib_filedata *)(fp)->private_data)->pq)
++#ifdef QIB_CONFIG_KNX
++#define knx_node_fp(fp) \
++	(((struct qib_filedata *)(fp)->private_data)->knx_node_id)
++#else
++/* allow the use of knx_node_fp() outside of a #ifdef QIB_CONFIG_KNX */
++#define knx_node_fp(fp) 0
++#endif
+ 
+ static inline struct qib_devdata *dd_from_ppd(struct qib_pportdata *ppd)
+ {
+diff -urN a9/drivers/infiniband/hw/qib/qib_init.c a10/drivers/infiniband/hw/qib/qib_init.c
+--- a9/drivers/infiniband/hw/qib/qib_init.c	2015-01-05 15:05:04.279461602 -0800
++++ a10/drivers/infiniband/hw/qib/qib_init.c	2015-01-05 15:10:58.251446692 -0800
 @@ -51,6 +51,10 @@
  #include "qib_verbs.h"
  #endif
@@ -637,7 +617,7 @@ index 17e0831..f8992f7 100644
  #undef pr_fmt
  #define pr_fmt(fmt) QIB_DRV_NAME ": " fmt
  
-@@ -1270,6 +1274,12 @@ static int __init qlogic_ib_init(void)
+@@ -1301,6 +1305,12 @@
  	/* not fatal if it doesn't work */
  	if (qib_init_qibfs())
  		pr_err("Unable to register ipathfs\n");
@@ -650,7 +630,7 @@ index 17e0831..f8992f7 100644
  	goto bail; /* all OK */
  
  bail_dev:
-@@ -1294,6 +1304,9 @@ static void __exit qlogic_ib_cleanup(void)
+@@ -1325,6 +1335,9 @@
  {
  	int ret;
  
@@ -660,7 +640,7 @@ index 17e0831..f8992f7 100644
  	ret = qib_exit_qibfs();
  	if (ret)
  		pr_err(
-@@ -1546,6 +1559,9 @@ static void __devexit qib_remove_one(struct pci_dev *pdev)
+@@ -1568,6 +1581,9 @@
  	/* unregister from IB core */
  	qib_unregister_ib_device(dd);
  
@@ -670,11 +650,9 @@ index 17e0831..f8992f7 100644
  	/*
  	 * Disable the IB link, disable interrupts on the device,
  	 * clear dma engines, etc.
-diff --git a/drivers/infiniband/hw/qib/qib_knx.c b/drivers/infiniband/hw/qib/qib_knx.c
-new file mode 100644
-index 0000000..5a9bdaa
---- /dev/null
-+++ b/drivers/infiniband/hw/qib/qib_knx.c
+diff -urN a9/drivers/infiniband/hw/qib/qib_knx.c a10/drivers/infiniband/hw/qib/qib_knx.c
+--- a9/drivers/infiniband/hw/qib/qib_knx.c	1969-12-31 16:00:00.000000000 -0800
++++ a10/drivers/infiniband/hw/qib/qib_knx.c	2015-01-05 15:10:58.252446692 -0800
 @@ -0,0 +1,1532 @@
 +/*
 + * Copyright (c) 2012, 2013 Intel Corporation. All rights reserved.
@@ -2208,91 +2186,9 @@ index 0000000..5a9bdaa
 +		kfree(server);
 +	}
 +}
-diff --git a/drivers/infiniband/hw/qib/qib_knx.h b/drivers/infiniband/hw/qib/qib_knx.h
-new file mode 100644
-index 0000000..0e8d7ce
---- /dev/null
-+++ b/drivers/infiniband/hw/qib/qib_knx.h
-@@ -0,0 +1,74 @@
-+/*
-+ * Copyright (c) 2012, 2013 Intel Corporation. All rights reserved.
-+ *
-+ * This software is available to you under a choice of one of two
-+ * licenses.  You may choose to be licensed under the terms of the GNU
-+ * General Public License (GPL) Version 2, available from the file
-+ * COPYING in the main directory of this source tree, or the
-+ * OpenIB.org BSD license below:
-+ *
-+ *     Redistribution and use in source and binary forms, with or
-+ *     without modification, are permitted provided that the following
-+ *     conditions are met:
-+ *
-+ *      - Redistributions of source code must retain the above
-+ *        copyright notice, this list of conditions and the following
-+ *        disclaimer.
-+ *
-+ *      - Redistributions in binary form must reproduce the above
-+ *        copyright notice, this list of conditions and the following
-+ *        disclaimer in the documentation and/or other materials
-+ *        provided with the distribution.
-+ *
-+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
-+ * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
-+ * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-+ * SOFTWARE.
-+ */
-+#ifndef _QIB_KNX_H
-+#define _QIB_KNX_H
-+
-+#include "qib.h"
-+
-+enum qib_knx_ctxtinfo_type {
-+	QIB_KNX_CTXTINFO_UREG,
-+	QIB_KNX_CTXTINFO_PIOAVAIL,
-+	QIB_KNX_CTXTINFO_STATUS,
-+	QIB_KNX_CTXTINFO_PIOBUFBASE,
-+	QIB_KNX_CTXTINFO_FLAGS
-+};
-+
-+#ifdef QIB_CONFIG_KNX
-+int __init qib_knx_server_init(void);
-+void __exit qib_knx_server_exit(void);
-+
-+void qib_knx_remove_device(struct qib_devdata *);
-+
-+inline struct qib_knx *qib_knx_get(uint16_t);
-+inline struct qib_devdata *qib_knx_node_to_dd(uint16_t);
-+int qib_knx_alloc_ctxt(u16, unsigned);
-+int qib_knx_setup_piobufs(struct qib_devdata *, struct qib_ctxtdata *, __u16);
-+int qib_knx_setup_pioregs(struct qib_devdata *, struct qib_ctxtdata *,
-+			  struct qib_base_info *);
-+int qib_knx_create_rcvhdrq(struct qib_devdata *, struct qib_ctxtdata *,
-+			   struct qib_base_info *);
-+int qib_knx_setup_eagerbufs(struct qib_ctxtdata *, struct qib_base_info *);
-+void qib_knx_free_ctxtdata(struct qib_devdata *, struct qib_ctxtdata *);
-+__u64 qib_knx_ctxt_info(struct qib_ctxtdata *, enum qib_knx_ctxtinfo_type,
-+			struct file *);
-+int qib_knx_sdma_queue_create(struct file *);
-+void qib_knx_sdma_queue_destroy(struct qib_filedata *);
-+#else
-+static inline u64 qib_knx_ctxt_info(
-+	struct qib_ctxtdata *rcd,
-+	enum qib_knx_ctxtinfo_type type,
-+	struct file *fp)
-+{
-+	return 0;
-+}
-+#endif
-+#endif /* _QIB_KNX_H */
-diff --git a/drivers/infiniband/hw/qib/qib_knx_common.h b/drivers/infiniband/hw/qib/qib_knx_common.h
-new file mode 100644
-index 0000000..53c521f
---- /dev/null
-+++ b/drivers/infiniband/hw/qib/qib_knx_common.h
+diff -urN a9/drivers/infiniband/hw/qib/qib_knx_common.h a10/drivers/infiniband/hw/qib/qib_knx_common.h
+--- a9/drivers/infiniband/hw/qib/qib_knx_common.h	1969-12-31 16:00:00.000000000 -0800
++++ a10/drivers/infiniband/hw/qib/qib_knx_common.h	2015-01-05 15:10:58.252446692 -0800
 @@ -0,0 +1,126 @@
 +/*
 + * Copyright (c) 2013 Intel Corporation. All rights reserved.
@@ -2420,11 +2316,88 @@ index 0000000..53c521f
 +};
 +
 +#endif /* _QIB_KNX_COMMON_H */
-diff --git a/drivers/infiniband/hw/qib/qib_user_sdma.c b/drivers/infiniband/hw/qib/qib_user_sdma.c
-index d2806ca..c25bd5a 100644
---- a/drivers/infiniband/hw/qib/qib_user_sdma.c
-+++ b/drivers/infiniband/hw/qib/qib_user_sdma.c
-@@ -63,80 +63,6 @@ struct qib_user_sdma_rb_node {
+diff -urN a9/drivers/infiniband/hw/qib/qib_knx.h a10/drivers/infiniband/hw/qib/qib_knx.h
+--- a9/drivers/infiniband/hw/qib/qib_knx.h	1969-12-31 16:00:00.000000000 -0800
++++ a10/drivers/infiniband/hw/qib/qib_knx.h	2015-01-05 15:10:58.252446692 -0800
+@@ -0,0 +1,74 @@
++/*
++ * Copyright (c) 2012, 2013 Intel Corporation. All rights reserved.
++ *
++ * This software is available to you under a choice of one of two
++ * licenses.  You may choose to be licensed under the terms of the GNU
++ * General Public License (GPL) Version 2, available from the file
++ * COPYING in the main directory of this source tree, or the
++ * OpenIB.org BSD license below:
++ *
++ *     Redistribution and use in source and binary forms, with or
++ *     without modification, are permitted provided that the following
++ *     conditions are met:
++ *
++ *      - Redistributions of source code must retain the above
++ *        copyright notice, this list of conditions and the following
++ *        disclaimer.
++ *
++ *      - Redistributions in binary form must reproduce the above
++ *        copyright notice, this list of conditions and the following
++ *        disclaimer in the documentation and/or other materials
++ *        provided with the distribution.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
++ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
++ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
++ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
++ * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
++ * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
++ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++ * SOFTWARE.
++ */
++#ifndef _QIB_KNX_H
++#define _QIB_KNX_H
++
++#include "qib.h"
++
++enum qib_knx_ctxtinfo_type {
++	QIB_KNX_CTXTINFO_UREG,
++	QIB_KNX_CTXTINFO_PIOAVAIL,
++	QIB_KNX_CTXTINFO_STATUS,
++	QIB_KNX_CTXTINFO_PIOBUFBASE,
++	QIB_KNX_CTXTINFO_FLAGS
++};
++
++#ifdef QIB_CONFIG_KNX
++int __init qib_knx_server_init(void);
++void __exit qib_knx_server_exit(void);
++
++void qib_knx_remove_device(struct qib_devdata *);
++
++inline struct qib_knx *qib_knx_get(uint16_t);
++inline struct qib_devdata *qib_knx_node_to_dd(uint16_t);
++int qib_knx_alloc_ctxt(u16, unsigned);
++int qib_knx_setup_piobufs(struct qib_devdata *, struct qib_ctxtdata *, __u16);
++int qib_knx_setup_pioregs(struct qib_devdata *, struct qib_ctxtdata *,
++			  struct qib_base_info *);
++int qib_knx_create_rcvhdrq(struct qib_devdata *, struct qib_ctxtdata *,
++			   struct qib_base_info *);
++int qib_knx_setup_eagerbufs(struct qib_ctxtdata *, struct qib_base_info *);
++void qib_knx_free_ctxtdata(struct qib_devdata *, struct qib_ctxtdata *);
++__u64 qib_knx_ctxt_info(struct qib_ctxtdata *, enum qib_knx_ctxtinfo_type,
++			struct file *);
++int qib_knx_sdma_queue_create(struct file *);
++void qib_knx_sdma_queue_destroy(struct qib_filedata *);
++#else
++static inline u64 qib_knx_ctxt_info(
++	struct qib_ctxtdata *rcd,
++	enum qib_knx_ctxtinfo_type type,
++	struct file *fp)
++{
++	return 0;
++}
++#endif
++#endif /* _QIB_KNX_H */
+diff -urN a9/drivers/infiniband/hw/qib/qib_user_sdma.c a10/drivers/infiniband/hw/qib/qib_user_sdma.c
+--- a9/drivers/infiniband/hw/qib/qib_user_sdma.c	2015-01-05 15:05:04.279461602 -0800
++++ a10/drivers/infiniband/hw/qib/qib_user_sdma.c	2015-01-05 15:10:58.252446692 -0800
+@@ -63,80 +63,6 @@
  	pid_t pid;
  };
  
@@ -2505,7 +2478,7 @@ index d2806ca..c25bd5a 100644
  static struct qib_user_sdma_rb_node *
  qib_user_sdma_rb_search(struct rb_root *root, pid_t pid)
  {
-@@ -254,12 +180,12 @@ done:
+@@ -254,12 +180,12 @@
  	return pq;
  }
  
@@ -2524,7 +2497,7 @@ index d2806ca..c25bd5a 100644
  {
  	pkt->addr[i].offset = offset;
  	pkt->addr[i].length = len;
-@@ -273,7 +199,7 @@ static void qib_user_sdma_init_frag(struct qib_user_sdma_pkt *pkt,
+@@ -273,7 +199,7 @@
  	pkt->addr[i].dma_length = dma_length;
  }
  
@@ -2533,7 +2506,7 @@ index d2806ca..c25bd5a 100644
  				size_t len, dma_addr_t *dma_addr)
  {
  	void *hdr;
-@@ -295,11 +221,11 @@ static void *qib_user_sdma_alloc_header(struct qib_user_sdma_queue *pq,
+@@ -295,11 +221,11 @@
  	return hdr;
  }
  
@@ -2550,7 +2523,7 @@ index d2806ca..c25bd5a 100644
  {
  	__le16 *pbc16;
  	void *pbcvaddr;
-@@ -314,21 +240,27 @@ static int qib_user_sdma_page_to_frags(const struct qib_devdata *dd,
+@@ -314,21 +240,27 @@
  	int ret = 0;
  
  	if (dma_mapping_error(&dd->pcidev->dev, dma_addr)) {
@@ -2591,7 +2564,7 @@ index d2806ca..c25bd5a 100644
  	offset = 0;
  	dma_mapped = 1;
  
-@@ -630,13 +562,19 @@ static void qib_user_sdma_free_pkt_frag(struct device *dev,
+@@ -630,13 +562,19 @@
  				       pkt->addr[i].dma_length,
  				       DMA_TO_DEVICE);
  
@@ -2617,7 +2590,7 @@ index d2806ca..c25bd5a 100644
  	} else if (pkt->addr[i].kvaddr) {
  		/* for headers */
  		if (pkt->addr[i].dma_mapped) {
-@@ -775,9 +713,9 @@ static int qib_user_sdma_init_payload(const struct qib_devdata *dd,
+@@ -775,9 +713,9 @@
  }
  
  /* free a packet list -- return counter value of last packet */
@@ -2630,7 +2603,7 @@ index d2806ca..c25bd5a 100644
  {
  	struct qib_user_sdma_pkt *pkt, *pkt_next;
  
-@@ -787,6 +725,10 @@ static void qib_user_sdma_free_pkt_list(struct device *dev,
+@@ -787,6 +725,10 @@
  		for (i = 0; i < pkt->naddr; i++)
  			qib_user_sdma_free_pkt_frag(dev, pq, pkt, i);
  
@@ -2641,7 +2614,7 @@ index d2806ca..c25bd5a 100644
  		if (pkt->largepkt)
  			kfree(pkt);
  		else
-@@ -970,6 +912,9 @@ static int qib_user_sdma_queue_pkts(const struct qib_devdata *dd,
+@@ -970,6 +912,9 @@
  		pkt->payload_size = 0;
  		pkt->counter = counter;
  		pkt->tiddma = tiddma;
@@ -2651,7 +2624,7 @@ index d2806ca..c25bd5a 100644
  
  		/* setup the first header */
  		qib_user_sdma_init_frag(pkt, 0, /* index */
-@@ -1045,8 +990,8 @@ static void qib_user_sdma_set_complete_counter(struct qib_user_sdma_queue *pq,
+@@ -1045,8 +990,8 @@
  }
  
  /* try to clean out queue -- needs pq->lock */
@@ -2662,7 +2635,7 @@ index d2806ca..c25bd5a 100644
  {
  	struct qib_devdata *dd = ppd->dd;
  	struct list_head free_list;
-@@ -1110,7 +1055,7 @@ void qib_user_sdma_queue_destroy(struct qib_user_sdma_queue *pq)
+@@ -1110,7 +1055,7 @@
  }
  
  /* clean descriptor queue, returns > 0 if some elements cleaned */
@@ -2671,7 +2644,7 @@ index d2806ca..c25bd5a 100644
  {
  	int ret;
  	unsigned long flags;
-@@ -1321,9 +1266,9 @@ retry:
+@@ -1321,9 +1266,9 @@
  }
  
  /* pq->lock must be held, get packets on the wire... */
@@ -2684,10 +2657,9 @@ index d2806ca..c25bd5a 100644
  {
  	unsigned long flags;
  
-diff --git a/drivers/infiniband/hw/qib/qib_user_sdma.h b/drivers/infiniband/hw/qib/qib_user_sdma.h
-index ce8cbaf..07d5bc5 100644
---- a/drivers/infiniband/hw/qib/qib_user_sdma.h
-+++ b/drivers/infiniband/hw/qib/qib_user_sdma.h
+diff -urN a9/drivers/infiniband/hw/qib/qib_user_sdma.h a10/drivers/infiniband/hw/qib/qib_user_sdma.h
+--- a9/drivers/infiniband/hw/qib/qib_user_sdma.h	2015-01-05 15:05:04.280461602 -0800
++++ a10/drivers/infiniband/hw/qib/qib_user_sdma.h	2015-01-05 15:10:58.253446692 -0800
 @@ -31,12 +31,108 @@
   */
  #include <linux/device.h>
@@ -2799,7 +2771,7 @@ index ce8cbaf..07d5bc5 100644
  int qib_user_sdma_writev(struct qib_ctxtdata *pd,
  			 struct qib_user_sdma_queue *pq,
  			 const struct iovec *iov,
-@@ -50,3 +146,9 @@ void qib_user_sdma_queue_drain(struct qib_pportdata *ppd,
+@@ -50,3 +146,9 @@
  
  u32 qib_user_sdma_complete_counter(const struct qib_user_sdma_queue *pq);
  u32 qib_user_sdma_inflight_counter(struct qib_user_sdma_queue *pq);

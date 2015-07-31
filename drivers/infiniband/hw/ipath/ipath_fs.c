@@ -57,9 +57,7 @@ static int ipathfs_mknod(struct inode *dir, struct dentry *dentry,
 		goto bail;
 	}
 
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,36))
 	inode->i_ino = get_next_ino();
-#endif
 	inode->i_mode = mode;
 	inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME;
 	inode->i_private = data;
@@ -84,7 +82,6 @@ static int create_file(const char *name, umode_t mode,
 {
 	int error;
 
-	*dentry = NULL;
 	mutex_lock(&parent->d_inode->i_mutex);
 	*dentry = lookup_one_len(name, parent, strlen(name));
 	if (!IS_ERR(*dentry))
@@ -279,21 +276,11 @@ static int remove_file(struct dentry *parent, char *name)
 		goto bail;
 	}
 
-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,36))
-	spin_lock(&dcache_lock);
-#endif
 	spin_lock(&tmp->d_lock);
 	if (!(d_unhashed(tmp) && tmp->d_inode)) {
-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,36))
-		dget_locked(tmp);
-#else
 		dget_dlock(tmp);
-#endif
 		__d_drop(tmp);
 		spin_unlock(&tmp->d_lock);
-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,36))
-		spin_unlock(&dcache_lock);
-#endif
 		simple_unlink(parent->d_inode, tmp);
 	} else
 		spin_unlock(&tmp->d_lock);
@@ -370,7 +357,6 @@ bail:
 	return ret;
 }
 
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,36))
 static struct dentry *ipathfs_mount(struct file_system_type *fs_type,
 			int flags, const char *dev_name, void *data)
 {
@@ -378,15 +364,6 @@ static struct dentry *ipathfs_mount(struct file_system_type *fs_type,
 	ret = mount_single(fs_type, flags, data, ipathfs_fill_super);
 	if (!IS_ERR(ret))
 		ipath_super = ret->d_sb;
-#else
-static int ipathfs_get_sb(struct file_system_type *fs_type, int flags,
-			const char *dev_name, void *data, struct vfsmount *mnt)
-{
-	int ret = get_sb_single(fs_type, flags, data,
-					ipathfs_fill_super, mnt);
-	if (ret >= 0)
-		ipath_super = mnt->mnt_sb;
-#endif
 	return ret;
 }
 
@@ -429,11 +406,7 @@ bail:
 static struct file_system_type ipathfs_fs_type = {
 	.owner =	THIS_MODULE,
 	.name =		"ipathfs",
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,36))
 	.mount =	ipathfs_mount,
-#else
-	.get_sb =   ipathfs_get_sb,
-#endif
 	.kill_sb =	ipathfs_kill_super,
 };
 MODULE_ALIAS_FS("ipathfs");

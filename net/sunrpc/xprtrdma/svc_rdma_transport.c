@@ -66,6 +66,9 @@ static void dto_tasklet_func(unsigned long data);
 static void svc_rdma_detach(struct svc_xprt *xprt);
 static void svc_rdma_free(struct svc_xprt *xprt);
 static int svc_rdma_has_wspace(struct svc_xprt *xprt);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)
+static int svc_rdma_secure_port(struct svc_rqst *);
+#endif
 static void rq_cq_reap(struct svcxprt_rdma *xprt);
 static void sq_cq_reap(struct svcxprt_rdma *xprt);
 
@@ -83,6 +86,9 @@ static struct svc_xprt_ops svc_rdma_ops = {
 	.xpo_prep_reply_hdr = svc_rdma_prep_reply_hdr,
 	.xpo_has_wspace = svc_rdma_has_wspace,
 	.xpo_accept = svc_rdma_accept,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)
+	.xpo_secure_port = svc_rdma_secure_port,
+#endif
 };
 
 struct svc_xprt_class svc_rdma_class = {
@@ -90,6 +96,9 @@ struct svc_xprt_class svc_rdma_class = {
 	.xcl_owner = THIS_MODULE,
 	.xcl_ops = &svc_rdma_ops,
 	.xcl_max_payload = RPCSVC_MAXPAYLOAD_RDMA,
+#ifdef HAVE_XCL_IDENT
+	.xcl_ident = XPRT_TRANSPORT_RDMA,
+#endif
 };
 
 struct svc_rdma_op_ctxt *svc_rdma_get_context(struct svcxprt_rdma *xprt)
@@ -458,11 +467,7 @@ static struct svcxprt_rdma *rdma_create_xprt(struct svc_serv *serv,
 
 	if (!cma_xprt)
 		return NULL;
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,3,0))
-	svc_xprt_init(&svc_rdma_class, &cma_xprt->sc_xprt, serv);
-#else
 	svc_xprt_init(&init_net, &svc_rdma_class, &cma_xprt->sc_xprt, serv);
-#endif
 	INIT_LIST_HEAD(&cma_xprt->sc_accept_q);
 	INIT_LIST_HEAD(&cma_xprt->sc_dto_q);
 	INIT_LIST_HEAD(&cma_xprt->sc_rq_dto_q);
@@ -944,23 +949,8 @@ static struct svc_xprt *svc_rdma_accept(struct svc_xprt *xprt)
 
 	ret = rdma_create_qp(newxprt->sc_cm_id, newxprt->sc_pd, &qp_attr);
 	if (ret) {
-		/*
-		 * XXX: This is a hack. We need a xx_request_qp interface
-		 * that will adjust the qp_attr's with a best-effort
-		 * number
-		 */
-		qp_attr.cap.max_send_sge -= 2;
-		qp_attr.cap.max_recv_sge -= 2;
-		ret = rdma_create_qp(newxprt->sc_cm_id, newxprt->sc_pd,
-				     &qp_attr);
-		if (ret) {
-			dprintk("svcrdma: failed to create QP, ret=%d\n", ret);
-			goto errout;
-		}
-		newxprt->sc_max_sge = qp_attr.cap.max_send_sge;
-		newxprt->sc_max_sge = qp_attr.cap.max_recv_sge;
-		newxprt->sc_sq_depth = qp_attr.cap.max_send_wr;
-		newxprt->sc_max_requests = qp_attr.cap.max_recv_wr;
+		dprintk("svcrdma: failed to create QP, ret=%d\n", ret);
+		goto errout;
 	}
 	newxprt->sc_qp = newxprt->sc_cm_id->qp;
 
@@ -1220,6 +1210,13 @@ static int svc_rdma_has_wspace(struct svc_xprt *xprt)
 	/* Otherwise return true. */
 	return 1;
 }
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)
+static int svc_rdma_secure_port(struct svc_rqst *rqstp)
+{
+	return 1;
+}
+#endif
 
 /*
  * Attempt to register the kvec representing the RPC memory with the

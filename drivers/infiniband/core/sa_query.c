@@ -42,7 +42,11 @@
 #include <linux/kref.h>
 #include <linux/idr.h>
 #include <linux/workqueue.h>
-
+#ifdef HAVE_UAPI_LINUX_IF_ETHER_H
+#include <uapi/linux/if_ether.h>
+#else
+#include <linux/if_ether.h>
+#endif
 #include <rdma/ib_pack.h>
 #include <rdma/ib_cache.h>
 #include "sa.h"
@@ -556,6 +560,13 @@ int ib_init_ah_from_path(struct ib_device *device, u8 port_num,
 		ah_attr->grh.hop_limit     = rec->hop_limit;
 		ah_attr->grh.traffic_class = rec->traffic_class;
 	}
+	if (force_grh) {
+		memcpy(ah_attr->dmac, rec->dmac, ETH_ALEN);
+		ah_attr->vlan_id = rec->vlan_id;
+	} else {
+		ah_attr->vlan_id = 0xffff;
+	}
+
 	return 0;
 }
 EXPORT_SYMBOL(ib_init_ah_from_path);
@@ -612,7 +623,7 @@ static void init_mad(struct ib_sa_mad *mad, struct ib_mad_agent *agent)
 static int send_mad(struct ib_sa_query *query, int timeout_ms, gfp_t gfp_mask)
 {
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 9, 0))
-	bool preload = gfp_mask & __GFP_WAIT;
+	bool preload = !!(gfp_mask & __GFP_WAIT);
 #endif
 	unsigned long flags;
 	int ret, id;
@@ -685,6 +696,9 @@ static void ib_sa_path_rec_callback(struct ib_sa_query *sa_query,
 
 		ib_unpack(path_rec_table, ARRAY_SIZE(path_rec_table),
 			  mad->data, &rec);
+		rec.vlan_id = 0xffff;
+		memset(rec.dmac, 0, ETH_ALEN);
+		memset(rec.smac, 0, ETH_ALEN);
 		query->callback(status, &rec, query->context);
 	} else
 		query->callback(status, NULL, query->context);
@@ -1189,7 +1203,7 @@ static void ib_sa_add_one(struct ib_device *device)
 		sa_dev->port[i].agent =
 			ib_register_mad_agent(device, i + s, IB_QPT_GSI,
 					      NULL, 0, send_handler,
-					      recv_handler, sa_dev);
+					      recv_handler, sa_dev, 0);
 		if (IS_ERR(sa_dev->port[i].agent))
 			goto err;
 

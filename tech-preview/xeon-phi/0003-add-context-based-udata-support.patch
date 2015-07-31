@@ -8,21 +8,16 @@ private data when allocating resources from processes.  However, when the
 processes are running on MIC, this communication is proxied to the host kernel
 via SCIF.  This patch allows setup of context-based udata access routines.
 ---
- drivers/infiniband/core/uverbs_cmd.c | 17 +++++++++++++++++
- include/rdma/ib_verbs.h              | 21 +++++++++++++++------
- 2 files changed, 32 insertions(+), 6 deletions(-)
-
-diff --git a/drivers/infiniband/core/uverbs_cmd.c b/drivers/infiniband/core/uverbs_cmd.c
-index 2f0f01b..67e7358 100644
---- a/drivers/infiniband/core/uverbs_cmd.c
-+++ b/drivers/infiniband/core/uverbs_cmd.c
-@@ -58,8 +58,24 @@ static struct uverbs_lock_class xrcd_lock_class = { .name = "XRCD-uobj" };
+diff -urN a2/drivers/infiniband/core/uverbs_cmd.c a3/drivers/infiniband/core/uverbs_cmd.c
+--- a2/drivers/infiniband/core/uverbs_cmd.c	2015-01-05 13:59:55.217626266 -0800
++++ a3/drivers/infiniband/core/uverbs_cmd.c	2015-01-05 14:30:40.647548530 -0800
+@@ -57,6 +57,21 @@
+ static struct uverbs_lock_class xrcd_lock_class = { .name = "XRCD-uobj" };
  static struct uverbs_lock_class rule_lock_class = { .name = "RULE-uobj" };
- #endif /* CONFIG_INFINIBAND_EXPERIMENTAL_UVERBS_FLOW_STEERING */
  
-+static int uverbs_copy_from_udata(void *dest, struct ib_udata *udata, size_t len)
++static int uverbs_copy_from_udata(void *dst, struct ib_udata *udata, size_t len)
 +{
-+	return copy_from_user(dest, udata->inbuf, len) ? -EFAULT : 0;
++	return copy_from_user(dst, udata->inbuf, len) ? -EFAULT : 0;
 +}
 +
 +static int uverbs_copy_to_udata(struct ib_udata *udata, void *src, size_t len)
@@ -30,18 +25,15 @@ index 2f0f01b..67e7358 100644
 +	return copy_to_user(udata->outbuf, src, len) ? -EFAULT : 0;
 +}
 +
-+static struct ib_udata_ops uverbs_copy = {
++struct ib_udata_ops uverbs_copy = {
 +	.copy_from = uverbs_copy_from_udata,
-+	.copy_to   = uverbs_copy_to_udata
++	.copy_to = uverbs_copy_to_udata
 +};
 +
- #define INIT_UDATA(udata, ibuf, obuf, ilen, olen)			\
- 	do {								\
-+		(udata)->ops    = &uverbs_copy;				\
- 		(udata)->inbuf  = (void __user *) (ibuf);		\
- 		(udata)->outbuf = (void __user *) (obuf);		\
- 		(udata)->inlen  = (ilen);				\
-@@ -324,6 +340,7 @@ ssize_t ib_uverbs_get_context(struct ib_uverbs_file *file,
+ /*
+  * The ib_uobject locking scheme is as follows:
+  *
+@@ -330,6 +345,7 @@
  		goto err;
  	}
  
@@ -49,36 +41,49 @@ index 2f0f01b..67e7358 100644
  	ucontext->device = ibdev;
  	INIT_LIST_HEAD(&ucontext->pd_list);
  	INIT_LIST_HEAD(&ucontext->mr_list);
-diff --git a/include/rdma/ib_verbs.h b/include/rdma/ib_verbs.h
-index 9945370..0137d0e 100644
---- a/include/rdma/ib_verbs.h
-+++ b/include/rdma/ib_verbs.h
-@@ -978,11 +978,20 @@ struct ib_uobject {
+Binary files a2/drivers/infiniband/core/.uverbs_cmd.c.rej.swp and a3/drivers/infiniband/core/.uverbs_cmd.c.rej.swp differ
+diff -urN a2/drivers/infiniband/core/uverbs.h a3/drivers/infiniband/core/uverbs.h
+--- a2/drivers/infiniband/core/uverbs.h	2015-01-05 13:59:55.216626266 -0800
++++ a3/drivers/infiniband/core/uverbs.h	2015-01-05 14:29:27.559551609 -0800
+@@ -47,8 +47,11 @@
+ #include <rdma/ib_umem.h>
+ #include <rdma/ib_user_verbs.h>
+ 
++extern struct ib_udata_ops uverbs_copy;
++
+ #define INIT_UDATA(udata, ibuf, obuf, ilen, olen)			\
+ 	do {								\
++		(udata)->ops	= &uverbs_copy;				\
+ 		(udata)->inbuf  = (const void __user *) (ibuf);		\
+ 		(udata)->outbuf = (void __user *) (obuf);		\
+ 		(udata)->inlen  = (ilen);				\
+@@ -57,6 +60,7 @@
+ 
+ #define INIT_UDATA_BUF_OR_NULL(udata, ibuf, obuf, ilen, olen)			\
+ 	do {									\
++		(udata)->ops	= &uverbs_copy;					\
+ 		(udata)->inbuf  = (ilen) ? (const void __user *) (ibuf) : NULL;	\
+ 		(udata)->outbuf = (olen) ? (void __user *) (obuf) : NULL;	\
+ 		(udata)->inlen  = (ilen);					\
+diff -urN a2/include/rdma/ib_verbs.h a3/include/rdma/ib_verbs.h
+--- a2/include/rdma/ib_verbs.h	2015-01-05 13:59:55.219626266 -0800
++++ a3/include/rdma/ib_verbs.h	2015-01-05 14:18:48.871578512 -0800
+@@ -1147,7 +1147,14 @@
  	int			live;
  };
  
 +struct ib_udata;
 +struct ib_udata_ops {
-+	int		      (*copy_from)(void *dest, struct ib_udata *udata,
-+					   size_t len);
-+	int		      (*copy_to)(struct ib_udata *udata, void *src,
-+					 size_t len);
++	int	(*copy_from)(void *dest, struct ib_udata *udata, size_t len);
++	int	(*copy_to)(struct ib_udata *udata, void *src, size_t len);
 +};
 +
  struct ib_udata {
--	void __user *inbuf;
--	void __user *outbuf;
--	size_t       inlen;
--	size_t       outlen;
-+	struct ib_udata_ops    *ops;
-+	void __user	       *inbuf;
-+	void __user	       *outbuf;
-+	size_t			inlen;
-+	size_t			outlen;
- };
- 
- struct ib_pd {
-@@ -1472,12 +1481,12 @@ void  ib_set_client_data(struct ib_device *device, struct ib_client *client,
++	struct ib_udata_ops	*ops;
+ 	const void __user *inbuf;
+ 	void __user *outbuf;
+ 	size_t       inlen;
+@@ -1664,12 +1671,12 @@
  
  static inline int ib_copy_from_udata(void *dest, struct ib_udata *udata, size_t len)
  {
@@ -93,6 +98,3 @@ index 9945370..0137d0e 100644
  }
  
  /**
--- 
-1.8.3.1
-

@@ -28,15 +28,8 @@
 
 %{!?configure_options: %define configure_options %{nil}}
 
-# %{!?MEMTRACK: %define MEMTRACK 0}
-%define MEMTRACK %(if ( echo %{configure_options} | grep "with-memtrack" > /dev/null ); then echo -n '1'; else echo -n '0'; fi)
-%define MADEYE %(if ( echo %{configure_options} | grep "with-madeye-mod" > /dev/null ); then echo -n '1'; else echo -n '0'; fi)
-
 %{!?KVERSION: %define KVERSION %(uname -r)}
 %define krelver %(echo -n %{KVERSION} | sed -e 's/-/_/g')
-
-%{!?build_kernel_ib: %define build_kernel_ib 0}
-%{!?build_kernel_ib_devel: %define build_kernel_ib_devel 0}
 
 # Set default to use scif.h and scif symvers from MPSS installation
 # Use the release-3.x paths
@@ -44,9 +37,8 @@
 %{!?scif_symvers: %define scif_symvers %(echo -n '/lib/modules/%{KVERSION}/scif.symvers')}
 
 # Select packages to build
-%{!?modprobe_update: %define modprobe_update %(if ( echo %{configure_options} | grep "without-modprobe" > /dev/null ); then echo -n '0'; else echo -n '1'; fi)}
-
 # Kernel module packages to be included into compat-rdma
+
 %define build_mthca %(if ( echo %{configure_options} | grep "with-mthca-mod" > /dev/null ); then echo -n '1'; else echo -n '0'; fi)
 %define build_qib %(if ( echo %{configure_options} | grep "with-qib-mod" > /dev/null ); then echo -n '1'; else echo -n '0'; fi)
 %define build_ipath %(if ( echo %{configure_options} | grep "with-ipath_inf-mod" > /dev/null ); then echo -n '1'; else echo -n '0'; fi)
@@ -75,15 +67,10 @@
 %{!?RDMA_CONF_DIR: %define RDMA_CONF_DIR /etc/infiniband}
 %{!?MLXNET_CONF_DIR: %define MLXNET_CONF_DIR /etc/mlxethernet}
 
-%{!?K_SRC: %define K_SRC /lib/modules/%{KVERSION}/build}
+%{!?K_SRC: %define K_SRC /lib/modules/%{KVERSION}/source}
+%{!?K_SRC_OBJ: %define K_SRC_OBJ /lib/modules/%{KVERSION}/build}
 
 %{!?KERNEL_SOURCES: %define KERNEL_SOURCES /lib/modules/%{KVERSION}/source}
-
-# Do not include srp.h if it exist in the kernel
-%define include_srp_h %(if [ -e %{KERNEL_SOURCES}/include/scsi/srp.h ]; then echo -n 0; else echo -n 1; fi )
-%define include_rdma %(if [ -d %{KERNEL_SOURCES}/include/rdma ]; then echo -n 1; else echo -n 0; fi )
-
-%define include_udev_rules %(eval `grep udev_rules /etc/udev/udev.conf | grep -v '^#'` ; if test -d $udev_rules; then echo -n 1; else echo -n 0; fi)
 
 # Disable debugging
 %define debug_package %{nil}
@@ -95,17 +82,16 @@
 %endif
 
 %{!?_name: %define _name compat-rdma}
-%{!?_version: %define _version 3.12}
-%{!?_release: %define _release 1.1.g561c555}
+%{!?_version: %define _version 3.18}
+%{!?_release: %define _release rc1.1.g90ee622}
 
 Name: %{_name}
 Version: %{_version}
 Release: %{_release}
-License: GPL/BSD
+License: GPLv2 or BSD
 Url: http://openfabrics.org/
 Group: System Environment/Base
 Source: %{_name}-%{_version}.tgz
-BuildRoot: %{?build_root:%{build_root}}%{!?build_root:/var/tmp/OFED}
 Vendor: OpenFabrics
 Requires: coreutils
 Requires: kernel
@@ -114,6 +100,7 @@ Requires: grep
 Requires: perl
 Requires: procps
 Requires: module-init-tools
+Requires: lsof
 Summary: Infiniband Driver and ULPs kernel modules
 %description
 InfiniBand "verbs", Access Layer  and ULPs
@@ -137,25 +124,19 @@ Core, HW and ULPs kernel modules sources
 rm -rf $RPM_BUILD_ROOT
 cd $RPM_BUILD_DIR/%{_name}-%{_version}
 
-%if %{build_kernel_ib_devel}
 # Save clean sources for compat-rdma-devel
 mkdir -p $RPM_BUILD_DIR/src
 cp -a $RPM_BUILD_DIR/%{_name}-%{_version} $RPM_BUILD_DIR/src/
-%endif
 
-./configure --prefix=%{_prefix} --kernel-version %{KVERSION} --kernel-sources %{K_SRC} --modules-dir %{LIB_MOD_DIR} %{configure_options}
+./configure --prefix=%{_prefix} --kernel-version %{KVERSION} --with-linux %{K_SRC} --with-linux-obj %{K_SRC_OBJ} --modules-dir %{LIB_MOD_DIR} %{configure_options}
 
-%if %{build_kernel_ib_devel}
 # Copy InfniBand include files after applying backport patches (if required)
 mkdir -p $RPM_BUILD_DIR/src/%{_name}
 cp -a $RPM_BUILD_DIR/%{_name}-%{_version}/include/ $RPM_BUILD_DIR/src/%{_name}
 cp -a $RPM_BUILD_DIR/%{_name}-%{_version}/configure.mk.kernel $RPM_BUILD_DIR/src/%{_name}
 cp -a $RPM_BUILD_DIR/%{_name}-%{_version}/config.mk  $RPM_BUILD_DIR/src/%{_name}
 sed -i -e "s@\${CWD}@%{_prefix}/src/%{_name}@g" $RPM_BUILD_DIR/src/%{_name}/config.mk
-%endif
 
-
-%if %{build_kernel_ib}
 %if %{build_ibp_server} || %{build_ibscif} || %{build_qib}
 test ! -d ./include/modules && mkdir ./include/modules
 test -f %{scif_h} && cp %{scif_h} ./include/modules
@@ -167,11 +148,9 @@ if [ -f /usr/local/include/scst/Module.symvers ]; then
 fi
 %endif
 export INSTALL_MOD_DIR=updates
-make kernel
-%endif
+make %{?_smp_mflags} kernel
 
 %install
-%if %{build_kernel_ib_devel}
 mkdir -p $RPM_BUILD_ROOT/%{_prefix}/src
 cp -a $RPM_BUILD_DIR/src/%{_name}-%{_version} $RPM_BUILD_ROOT/%{_prefix}/src
 cp -a $RPM_BUILD_DIR/src/%{_name} $RPM_BUILD_ROOT/%{_prefix}/src
@@ -181,15 +160,11 @@ rm -rf $RPM_BUILD_DIR/src
 cd $RPM_BUILD_ROOT/%{_prefix}/src/
 ln -s %{_name} openib
 cd -
-%endif
 
-%if %{build_kernel_ib}
 make install_kernel MODULES_DIR=%{LIB_MOD_DIR} INSTALL_MOD_PATH=$RPM_BUILD_ROOT INSTALL_MOD_DIR=updates KERNELRELEASE=%{KVERSION}
 cp -a compat.config $RPM_BUILD_ROOT/%{_prefix}/src/%{_name}
 cp -a include/linux/compat_autoconf.h $RPM_BUILD_ROOT/%{_prefix}/src/%{_name}/include/linux
-%endif
 
-%if %{build_kernel_ib_devel}
 modsyms=`find $RPM_BUILD_DIR/%{_name}-%{_version} -name Module.symvers -o -name Modules.symvers`
 if [ -n "$modsyms" ]; then
 	for modsym in $modsyms
@@ -200,7 +175,6 @@ else
 	./ofed_scripts/create_Module.symvers.sh
 	cp ./Module.symvers $RPM_BUILD_ROOT/%{_prefix}/src/%{_name}/Module.symvers
 fi
-%endif
 	
 INFO=${RPM_BUILD_ROOT}%{RDMA_CONF_DIR}/info
 /bin/rm -f ${INFO}
@@ -219,9 +193,15 @@ EOFINFO
 
 chmod +x ${INFO} > /dev/null 2>&1
 
+%if 0%{?suse_version} == 1315
+install -d $RPM_BUILD_ROOT/%{_prefix}/lib/systemd/system
+install -m 0644 $RPM_BUILD_DIR/%{_name}-%{_version}/ofed_scripts/openibd.service $RPM_BUILD_ROOT/%{_prefix}/lib/systemd/system
+%endif
+
 # Copy infiniband configuration
 install -d $RPM_BUILD_ROOT/%{RDMA_CONF_DIR}
 install -m 0644 $RPM_BUILD_DIR/%{_name}-%{_version}/ofed_scripts/openib.conf $RPM_BUILD_ROOT/%{RDMA_CONF_DIR}
+cat $RPM_BUILD_DIR/%{_name}-%{_version}/ofed_scripts/openib.conf.tmp >> $RPM_BUILD_ROOT/%{RDMA_CONF_DIR}/openib.conf
 
 %if %{build_ibp_server} || %{build_ibscif}
 # install overlay files and config
@@ -264,10 +244,8 @@ install -m 0644 $RPM_BUILD_DIR/%{_name}-%{_version}/ofed_scripts/truescale.cmds 
 %endif
 
 %if %{build_ipoib}
-%if %{modprobe_update}
 install -d $RPM_BUILD_ROOT/etc/modprobe.d
 install -m 0644 $RPM_BUILD_DIR/%{_name}-%{_version}/ofed_scripts/ib_ipoib.conf $RPM_BUILD_ROOT/etc/modprobe.d
-%endif
 %if %{build_ibp_server} || %{build_ibscif}
 install -d $RPM_BUILD_ROOT/etc/sysconfig/mic
 install -D -m 0644 $RPM_BUILD_DIR/%{_name}-%{_version}/ofed_scripts/ipoib.conf $RPM_BUILD_ROOT/etc/mpss/ipoib.conf
@@ -275,27 +253,11 @@ install -D -m 0644 $RPM_BUILD_DIR/%{_name}-%{_version}/docs/lustre-phi.txt $RPM_
 %endif
 %endif
 
-%if %{build_sdp}
-%if %{modprobe_update}
-install -d $RPM_BUILD_ROOT/etc/modprobe.d
-install -m 0644 $RPM_BUILD_DIR/%{_name}-%{_version}/ofed_scripts/ib_sdp.conf $RPM_BUILD_ROOT/etc/modprobe.d
-%endif
-%endif
-
-%if %{include_udev_rules}
 install -d $RPM_BUILD_ROOT/etc/udev/rules.d
 install -m 0644 $RPM_BUILD_DIR/%{_name}-%{_version}/ofed_scripts/90-ib.rules $RPM_BUILD_ROOT/etc/udev/rules.d
-case "$(udevinfo -V 2> /dev/null | awk '{print $NF}' 2> /dev/null)" in
-0[1-4]*)
-sed -i -e 's/KERNEL==/KERNEL=/g'  $RPM_BUILD_ROOT/etc/udev/rules.d/90-ib.rules
-;;
-esac
-%endif
-	
+
 %clean
-#Remove installed driver after rpm build finished
-rm -rf $RPM_BUILD_ROOT
-rm -rf $RPM_BUILD_DIR/%{_name}-%{_version}
+rm -rf %{buildroot}
 
 %pre
 
@@ -303,31 +265,7 @@ rm -rf $RPM_BUILD_DIR/%{_name}-%{_version}
 
 %post
 if [ $1 -ge 1 ]; then # 1 : This package is being installed or reinstalled
-#############################################################################################################
-#                                       Modules configuration                                               #
-#############################################################################################################
-
-%if ! %{include_udev_rules}
-    if [ -e /etc/udev/udev.rules ]; then
-        perl -ni -e 'if (/\# Infiniband devices \#$/) { $filter = 1 }' -e 'if (!$filter) { print }' -e 'if (/\# End Infiniband devices \#$/){ $filter = 0 }' /etc/udev/udev.rules
-        cat >> /etc/udev/udev.rules << EOF
-# Infiniband devices #
-KERNEL="umad*", NAME="infiniband/%k"
-KERNEL="issm*", NAME="infiniband/%k"
-KERNEL="ucm*", NAME="infiniband/%k", MODE="0666"
-KERNEL="uverbs*", NAME="infiniband/%k", MODE="0666"
-KERNEL="uat", NAME="infiniband/%k", MODE="0666"
-KERNEL="ucma", NAME="infiniband/%k", MODE="0666"
-KERNEL="rdma_cm", NAME="infiniband/%k", MODE="0666"
-# End Infiniband devices #
-EOF
-    fi
-%endif
-
     /sbin/depmod %{KVERSION}
-
-#############################################################################################################
-
 
 if [[ -f /etc/redhat-release || -f /etc/rocks-release ]]; then        
 perl -i -ne 'if (m@^#!/bin/bash@) {
@@ -418,135 +356,8 @@ if [ -f /etc/debian_version ]; then
         fi
 fi
 
-%if %{build_kernel_ib}
-    echo >> %{RDMA_CONF_DIR}/openib.conf
-    echo "# Load UCM module" >> %{RDMA_CONF_DIR}/openib.conf
-    echo "UCM_LOAD=no" >> %{RDMA_CONF_DIR}/openib.conf
-    echo >> %{RDMA_CONF_DIR}/openib.conf
-    echo "# Load RDMA_CM module" >> %{RDMA_CONF_DIR}/openib.conf
-    echo "RDMA_CM_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
-    echo >> %{RDMA_CONF_DIR}/openib.conf
-    echo "# Load RDMA_UCM module" >> %{RDMA_CONF_DIR}/openib.conf
-    echo "RDMA_UCM_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
-    echo >> %{RDMA_CONF_DIR}/openib.conf
-    echo "# Increase ib_mad thread priority" >> %{RDMA_CONF_DIR}/openib.conf
-    echo "RENICE_IB_MAD=no" >> %{RDMA_CONF_DIR}/openib.conf
-    echo >> %{RDMA_CONF_DIR}/openib.conf
-    echo "# Run sysctl performance tuning script" >> %{RDMA_CONF_DIR}/openib.conf
-    echo "RUN_SYSCTL=yes" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_mthca}
-       echo >> %{RDMA_CONF_DIR}/openib.conf                                                
-       echo "# Load MTHCA" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "MTHCA_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_qib}
-       echo >> %{RDMA_CONF_DIR}/openib.conf
-       echo "# Load QIB" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "QIB_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "# QIB QME BP VER" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "QIB_QME_BPVER=1" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_ipath}
-       echo >> %{RDMA_CONF_DIR}/openib.conf                                                
-       echo "# Load IPATH" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "IPATH_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_ehca}
-       echo >> %{RDMA_CONF_DIR}/openib.conf                                                
-       echo "# Load eHCA" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "EHCA_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_mlx4}
-       echo >> %{RDMA_CONF_DIR}/openib.conf
-       echo "# Load MLX4 modules" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "MLX4_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_mlx5}
-       echo >> %{RDMA_CONF_DIR}/openib.conf
-       echo "# Load MLX5 modules" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "MLX5_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_mlx4_en}
-       echo >> %{RDMA_CONF_DIR}/openib.conf
-       echo "# Load MLX4_EN module" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "MLX4_EN_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_cxgb3}
-       echo >> %{RDMA_CONF_DIR}/openib.conf                                                
-       echo "# Load CXGB3 modules" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "CXGB3_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_cxgb4}
-       echo >> %{RDMA_CONF_DIR}/openib.conf
-       echo "# Load CXGB4 modules" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "CXGB4_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_nes}
-       echo >> %{RDMA_CONF_DIR}/openib.conf                                                
-       echo "# Load NES modules" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "NES_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_ipoib}
-       echo >> %{RDMA_CONF_DIR}/openib.conf                                                
-       echo "# Load IPoIB" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "IPOIB_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
-       echo >> %{RDMA_CONF_DIR}/openib.conf                                                
-       echo "# Enable IPoIB Connected Mode" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "SET_IPOIB_CM=yes" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_sdp}
-       echo >> %{RDMA_CONF_DIR}/openib.conf                                                
-       echo "# Load SDP module" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "SDP_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_srp}
-       echo >> %{RDMA_CONF_DIR}/openib.conf                                                
-       echo "# Load SRP module" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "SRP_LOAD=no" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_srpt}
-       echo >> %{RDMA_CONF_DIR}/openib.conf                                                
-       echo "# Load SRP Target module" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "SRPT_LOAD=no" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_iser}
-       echo >> %{RDMA_CONF_DIR}/openib.conf                                                
-       echo "# Load ISER module" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "ISER_LOAD=no" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_rds}
-       echo >> %{RDMA_CONF_DIR}/openib.conf                                                
-       echo "# Load RDS module" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "RDS_LOAD=no" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_qlgc_vnic}
-       echo >> %{RDMA_CONF_DIR}/openib.conf
-       echo "# Load QLogic VNIC module" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "QLGC_VNIC_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
-%endif
-
-%if %{build_ocrdma}
-       echo >> %{RDMA_CONF_DIR}/openib.conf                                                
-       echo "# Load OCRDMA modules" >> %{RDMA_CONF_DIR}/openib.conf
-       echo "OCRDMA_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
+%if 0%{?suse_version} == 1315
+/usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
 %endif
 
 fi # 1 : closed
@@ -588,19 +399,9 @@ if [ $1 = 0 ]; then  # 1 : Erase, not upgrade
         # Clean /etc/modprobe.d/ofed.conf   
         # Remove previous configuration if exist
         /sbin/depmod %{KVERSION}
-
-# Clean udev.rules
-%if ! %{include_udev_rules}
-    if [ -e /etc/udev/udev.rules ]; then
-        perl -ni -e 'if (/\# Infiniband devices \#$/) { $filter = 1 }' -e 'if (!$filter) { print }' -e 'if (/\# End Infiniband devices \#$/){ $filter = 0 }' /etc/udev/udev.rules
-    fi
+%if 0%{?suse_version} == 1315
+/usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
 %endif
-
-# Clean sysctl.conf
-if [ -f /etc/sysctl.conf ]; then
-perl -ni -e 'if (/\#\# OFED Network tuning parameters \#\#$/) { $filter = 1 }' -e 'if (!$filter) { print }' -e 'if (/\#\# END of OFED parameters \#\#$/){ $filter = 0 }' /etc/sysctl.conf
-fi
-
 fi
 
 %postun -n compat-rdma-devel
@@ -617,31 +418,23 @@ fi
 %endif
 %{RDMA_CONF_DIR}/info
 /etc/init.d/openibd
-/sbin/sysctl_perf_tuning
-%if %{include_udev_rules}
-/etc/udev/rules.d/90-ib.rules
+%if 0%{?suse_version} == 1315
+%{_prefix}/lib/systemd/system/openibd.service
 %endif
+/sbin/sysctl_perf_tuning
+/etc/udev/rules.d/90-ib.rules
 %{LIB_MOD_DIR}
 %if %{build_qib}
 %config(noreplace) %{RDMA_CONF_DIR}/truescale.cmds
 %endif
 %if %{build_ibp_server} || %{build_ibscif}
-%if %{modprobe_update}
 %config(noreplace) %{_sysconfdir}/modprobe.d/ibscif.conf
 %endif
-%endif
 %if %{build_ipoib}
-%if %{modprobe_update}
 /etc/modprobe.d/ib_ipoib.conf
-%endif
 %if %{build_ibp_server} || %{build_ibscif}
 %config(noreplace) %{_sysconfdir}/mpss/ipoib.conf
 /usr/share/doc/%{_name}-%{_version}/lustre-phi.txt
-%endif
-%endif
-%if %{build_sdp}
-%if %{modprobe_update}
-/etc/modprobe.d/ib_sdp.conf
 %endif
 %endif
 %if %{build_mlx4} || %{build_mlx5}
@@ -662,4 +455,3 @@ fi
 %changelog
 * Thu Feb 16 2012 Vladimir Sokolovsky <vlad@mellanox.com>
 - Created spec file for compat-rdma
-a

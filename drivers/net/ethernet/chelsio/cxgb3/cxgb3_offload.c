@@ -30,7 +30,9 @@
  * SOFTWARE.
  */
 
+#ifdef pr_fmt
 #undef pr_fmt
+#endif
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/list.h>
@@ -65,14 +67,8 @@ static const unsigned int MAX_ATIDS = 64 * 1024;
 static const unsigned int ATID_BASE = 0x10000;
 
 static void cxgb_neigh_update(struct neighbour *neigh);
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 9, 0)
 static void cxgb_redirect(struct dst_entry *old, struct dst_entry *new,
-                          struct neighbour *neigh,
-                          const void *daddr);
-#else
-static void cxgb_redirect(struct dst_entry *old, struct dst_entry *new);
-#endif
+			  struct neighbour *neigh, const void *daddr);
 
 static inline int offload_activated(struct t3cdev *tdev)
 {
@@ -187,24 +183,26 @@ static struct net_device *get_iff_from_mac(struct adapter *adapter,
 	int i;
 
 	for_each_port(adapter, i) {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 1, 0)
-		struct vlan_group *grp;
-#endif
 		struct net_device *dev = adapter->port[i];
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 1, 0)
-		const struct port_info *p = netdev_priv(dev);
-#endif
 
-		if (!memcmp(dev->dev_addr, mac, ETH_ALEN)) {
+		if (ether_addr_equal(dev->dev_addr, mac)) {
 			rcu_read_lock();
 			if (vlan && vlan != VLAN_VID_MASK) {
+#ifdef HAVE___VLAN_FIND_DEV_DEEP_RCU
+				dev = __vlan_find_dev_deep_rcu(dev, htons(ETH_P_8021Q), vlan);
+#else
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0)
 				dev = __vlan_find_dev_deep(dev, htons(ETH_P_8021Q), vlan);
 #else
-				grp = p->vlan_grp;
-				dev = NULL;
-				if (grp)
-					dev = vlan_group_get_device(grp, vlan);
+			{
+				struct port_info *p = netdev_priv(dev);
+
+				if (p->vlan_grp)
+					dev = vlan_group_get_device(p->vlan_grp, vlan);
+				else
+					dev = NULL;
+			}
+#endif
 #endif
 			} else if (netif_is_bond_slave(dev)) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 9, 0)
@@ -216,6 +214,7 @@ static struct net_device *get_iff_from_mac(struct adapter *adapter,
 #else
 				while (dev->master)
 					dev = dev->master;
+
 #endif
 			}
 			rcu_read_unlock();
@@ -999,8 +998,18 @@ static int nb_callback(struct notifier_block *self, unsigned long event,
 			      nr->daddr);
 		cxgb_neigh_update(nr->neigh);
 #else
-		cxgb_redirect(nr->old, nr->new);
+	{
+		struct neighbour *neigh;
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 3, 0)
+		neigh = dst_get_neighbour_noref(nr->new);
+#else
+		neigh = dst_get_neighbour(nr->new);
+#endif
+		if (neigh)
+			cxgb_redirect(nr->old, nr->new, neigh, NULL);
 		cxgb_neigh_update(dst_get_neighbour(nr->new));
+	}
 #endif
 		break;
 	}
@@ -1137,7 +1146,6 @@ static void set_l2t_ix(struct t3cdev *tdev, u32 tid, struct l2t_entry *e)
 	tdev->send(tdev, skb);
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 9, 0)
 static void cxgb_redirect(struct dst_entry *old, struct dst_entry *new,
 			  struct neighbour *neigh,
 			  const void *daddr)
@@ -1158,11 +1166,7 @@ static void cxgb_redirect(struct dst_entry *old, struct dst_entry *new,
 	BUG_ON(!tdev);
 
 	/* Add new L2T entry */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
 	e = t3_l2t_get(tdev, new, dev, daddr);
-#else
-	e = t3_l2t_get(tdev, new, dev);
-#endif
 	if (!e) {
 		pr_err("%s: couldn't allocate new l2t entry!\n", __func__);
 		return;
@@ -1185,77 +1189,6 @@ static void cxgb_redirect(struct dst_entry *old, struct dst_entry *new,
 	}
 	l2t_release(tdev, e);
 }
-#else
-static void cxgb_redirect(struct dst_entry *old, struct dst_entry *new)
-{
-	struct net_device *olddev, *newdev;
-	struct neighbour *n;
-	struct tid_info *ti;
-	struct t3cdev *tdev;
-	u32 tid;
-	int update_tcb;
-	struct l2t_entry *e;
-	struct t3c_tid_entry *te;
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 3, 0)
-	n = dst_get_neighbour_noref(old);
-#else
-	n = dst_get_neighbour(old);
-#endif
-	if (!n)
-		return;
-	olddev = n->dev;
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 3, 0)
-	n = dst_get_neighbour_noref(new);
-#else
-	n = dst_get_neighbour(new);
-#endif
-	if (!n)
-		return;
-	newdev = n->dev;
-
-	if (!is_offloading(olddev))
-		return;
-	if (!is_offloading(newdev)) {
-		printk(KERN_WARNING "%s: Redirect to non-offload "
-				"device ignored.\n", __func__);
-		return;
-	}
-	tdev = dev2t3cdev(olddev);
-	BUG_ON(!tdev);
-	if (tdev != dev2t3cdev(newdev)) {
-		printk(KERN_WARNING "%s: Redirect to different "
-				"offload device ignored.\n", __func__);
-		return;
-	}
-
-	/* Add new L2T entry */
-	e = t3_l2t_get(tdev, new, newdev);
-	if (!e) {
-		printk(KERN_ERR "%s: couldn't allocate new l2t entry!\n",
-				__func__);
-		return;
-	}
-
-	/* Walk tid table and notify clients of dst change. */
-	ti = &(T3C_DATA(tdev))->tid_maps;
-	for (tid = 0; tid < ti->ntids; tid++) {
-		te = lookup_tid(ti, tid);
-		BUG_ON(!te);
-		if (te && te->ctx && te->client && te->client->redirect) {
-			update_tcb = te->client->redirect(te->ctx, old, new, e);
-			if (update_tcb) {
-				rcu_read_lock();
-				l2t_hold(L2DATA(tdev), e);
-				rcu_read_unlock();
-				set_l2t_ix(tdev, tid, e);
-			}
-		}
-	}
-	l2t_release(tdev, e);
-}
-#endif
 
 /*
  * Allocate a chunk of memory using kmalloc or, if that fails, vmalloc.

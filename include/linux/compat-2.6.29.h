@@ -2,17 +2,10 @@
 #define LINUX_26_29_COMPAT_H
 
 #include <linux/version.h>
-#include <linux/netdevice.h>
-#include <linux/if_link.h>
-
-/*
- * I kow this looks odd.. but 2.6.32 added the netdev_tx_t
- * and we backport that there so inlcude that header first
- * as we need it for the netdev ops.
- */
-#include <linux/compat-2.6.32.h>
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29))
+#include <linux/netdevice.h>
+#include <linux/if_link.h>
 
 #include <linux/skbuff.h>
 #include <linux/usb.h>

@@ -1,7 +1,7 @@
 /*
  * This file is part of the Chelsio T4 Ethernet driver for Linux.
  *
- * Copyright (c) 2003-2010 Chelsio Communications, Inc. All rights reserved.
+ * Copyright (c) 2003-2014 Chelsio Communications, Inc. All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -67,11 +67,6 @@
  * Should be >= RX_PULL_LEN but possibly bigger to give pskb_may_pull some room.
  */
 #define RX_PKT_SKB_LEN   512
-
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 6, 0)
-/* Ethernet header padding prepended to RX_PKTs */
-#define RX_PKT_PAD 2
-#endif
 
 /*
  * Max number of Tx descriptors we clean up at a time.  Should be modest as
@@ -217,6 +212,9 @@ enum {
 	RX_LARGE_MTU_BUF = 0x3,   /* large MTU buffer */
 };
 
+static int timer_pkt_quota[] = {1, 1, 2, 3, 4, 5};
+#define MIN_NAPI_WORK  1
+
 static inline dma_addr_t get_buf_addr(const struct rx_sw_desc *d)
 {
 	return d->dma_addr & ~(dma_addr_t)RX_BUF_FLAGS;
@@ -271,13 +269,8 @@ static int map_skb(struct device *dev, const struct sk_buff *skb,
 	end = &si->frags[si->nr_frags];
 
 	for (fp = si->frags; fp < end; fp++) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 2, 0)
 		*++addr = skb_frag_dma_map(dev, fp, 0, skb_frag_size(fp),
 					   DMA_TO_DEVICE);
-#else
-		*++addr = dma_map_page(dev, fp->page, fp->page_offset,
-				       skb_frag_size(fp), DMA_TO_DEVICE);
-#endif
 		if (dma_mapping_error(dev, *addr))
 			goto unwind;
 	}
@@ -402,7 +395,11 @@ static void free_tx_desc(struct adapter *adap, struct sge_txq *q,
 		if (d->skb) {                       /* an SGL is present */
 			if (unmap)
 				unmap_sgl(dev, d->skb, d->sgl, q);
-			kfree_skb(d->skb);
+#ifdef HAVE_DEV_CONSUME_SKB_ANY
+			dev_consume_skb_any(d->skb);
+#else
+			dev_kfree_skb_any(d->skb);
+#endif
 			d->skb = NULL;
 		}
 		++d;
@@ -540,9 +537,23 @@ static inline void ring_fl_db(struct adapter *adap, struct sge_fl *q)
 		val = PIDX(q->pend_cred / 8);
 		if (!is_t4(adap->params.chip))
 			val |= DBTYPE(1);
+		val |= DBPRIO(1);
 		wmb();
-		t4_write_reg(adap, MYPF_REG(SGE_PF_KDOORBELL), DBPRIO(1) |
-			     QID(q->cntxt_id) | val);
+
+		/* If we're on T4, use the old doorbell mechanism; otherwise
+		 * use the new BAR2 mechanism.
+		 */
+		if (is_t4(adap->params.chip)) {
+			t4_write_reg(adap, MYPF_REG(SGE_PF_KDOORBELL),
+				     val | QID(q->cntxt_id));
+		} else {
+			writel(val,  adap->bar2 + q->udb + SGE_UDB_KDOORBELL);
+
+			/* This Write memory Barrier will force the write to
+			 * the User Doorbell area to be flushed.
+			 */
+			wmb();
+		}
 		q->pend_cred &= 7;
 	}
 }
@@ -617,7 +628,7 @@ static unsigned int refill_fl(struct adapter *adap, struct sge_fl *q, int n,
 
 alloc_small_pages:
 	while (n--) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
+#ifdef HAVE__SKB_ALLOC_PAGE
 		pg = __skb_alloc_page(gfp, NULL);
 #else
 		pg = alloc_page(gfp);
@@ -856,13 +867,14 @@ static void write_sgl(const struct sk_buff *skb, struct sge_txq *q,
 		*end = 0;
 }
 
-/* This function copies 64 byte coalesced work request to
- * memory mapped BAR2 space(user space writes).
- * For coalesced WR SGE, fetches data from the FIFO instead of from Host.
+/* This function copies a tx_desc struct to memory mapped BAR2 space(user space
+ * writes). For coalesced WR SGE, fetches data from the FIFO instead of from
+ * Host.
  */
-static void cxgb_pio_copy(u64 __iomem *dst, u64 *src)
+static void cxgb_pio_copy(u64 __iomem *dst, struct tx_desc *desc)
 {
-	int count = 8;
+	int count = sizeof(*desc) / sizeof(u64);
+	u64 *src = (u64 *)desc;
 
 	while (count) {
 		writeq(*src, dst);
@@ -882,30 +894,63 @@ static void cxgb_pio_copy(u64 __iomem *dst, u64 *src)
  */
 static inline void ring_tx_db(struct adapter *adap, struct sge_txq *q, int n)
 {
-	unsigned int *wr, index;
-	unsigned long flags;
-
 	wmb();            /* write descriptors before telling HW */
-	spin_lock_irqsave(&q->db_lock, flags);
-	if (!q->db_disabled) {
-		if (is_t4(adap->params.chip)) {
+
+	if (is_t4(adap->params.chip)) {
+		u32 val = PIDX(n);
+		unsigned long flags;
+
+		/* For T4 we need to participate in the Doorbell Recovery
+		 * mechanism.
+		 */
+		spin_lock_irqsave(&q->db_lock, flags);
+		if (!q->db_disabled)
 			t4_write_reg(adap, MYPF_REG(SGE_PF_KDOORBELL),
-				     QID(q->cntxt_id) | PIDX(n));
+				     QID(q->cntxt_id) | val);
+		else
+			q->db_pidx_inc += n;
+		q->db_pidx = q->pidx;
+		spin_unlock_irqrestore(&q->db_lock, flags);
+	} else {
+		u32 val = PIDX_T5(n);
+
+		/* T4 and later chips share the same PIDX field offset within
+		 * the doorbell, but T5 and later shrank the field in order to
+		 * gain a bit for Doorbell Priority.  The field was absurdly
+		 * large in the first place (14 bits) so we just use the T5
+		 * and later limits and warn if a Queue ID is too large.
+		 */
+		WARN_ON(val & DBPRIO(1));
+
+		/* For T5 and later we use the Write-Combine mapped BAR2 User
+		 * Doorbell mechanism.  If we're only writing a single TX
+		 * Descriptor and TX Write Combining hasn't been disabled, we
+		 * can use the Write Combining Gather Buffer; otherwise we use
+		 * the simple doorbell.
+		 */
+		if (n == 1) {
+			int index = (q->pidx
+				     ? (q->pidx - 1)
+				     : (q->size - 1));
+
+			cxgb_pio_copy(adap->bar2 + q->udb + SGE_UDB_WCDOORBELL,
+				      q->desc + index);
 		} else {
-			if (n == 1) {
-				index = q->pidx ? (q->pidx - 1) : (q->size - 1);
-				wr = (unsigned int *)&q->desc[index];
-				cxgb_pio_copy((u64 __iomem *)
-					      (adap->bar2 + q->udb + 64),
-					      (u64 *)wr);
-			} else
-				writel(n,  adap->bar2 + q->udb + 8);
-			wmb();
+			writel(val,  adap->bar2 + q->udb + SGE_UDB_KDOORBELL);
 		}
-	} else
-		q->db_pidx_inc += n;
-	q->db_pidx = q->pidx;
-	spin_unlock_irqrestore(&q->db_lock, flags);
+
+		/* This Write Memory Barrier will force the write to the User
+		 * Doorbell area to be flushed.  This is needed to prevent
+		 * writes on different CPUs for the same queue from hitting
+		 * the adapter out of order.  This is required when some Work
+		 * Requests take the Write Combine Gather Buffer path (user
+		 * doorbell area offset [SGE_UDB_WCDOORBELL..+63]) and some
+		 * take the traditional path where we simply increment the
+		 * PIDX (User Doorbell area SGE_UDB_KDOORBELL) and have the
+		 * hardware DMA read the actual Work Request.
+		 */
+		wmb();
+	}
 }
 
 /**
@@ -1032,7 +1077,7 @@ netdev_tx_t t4_eth_xmit(struct sk_buff *skb, struct net_device *dev)
 	 * anything shorter than an Ethernet header.
 	 */
 	if (unlikely(skb->len < ETH_HLEN)) {
-out_free:	dev_kfree_skb(skb);
+out_free:	dev_kfree_skb_any(skb);
 		return NETDEV_TX_OK;
 	}
 
@@ -1095,7 +1140,10 @@ out_free:	dev_kfree_skb(skb);
 		lso->c.ipid_ofst = htons(0);
 		lso->c.mss = htons(ssi->gso_size);
 		lso->c.seqno_offset = htonl(0);
-		lso->c.len = htonl(skb->len);
+		if (is_t4(adap->params.chip))
+			lso->c.len = htonl(skb->len);
+		else
+			lso->c.len = htonl(LSO_T5_XFER_SIZE(skb->len));
 		cpl = (void *)(lso + 1);
 		cntrl = TXPKT_CSUM_TYPE(v6 ? TX_CSUM_TCPIP6 : TX_CSUM_TCPIP) |
 			TXPKT_IPHDR_LEN(l3hdr_len) |
@@ -1127,7 +1175,11 @@ out_free:	dev_kfree_skb(skb);
 
 	if (immediate) {
 		inline_tx_skb(skb, &q->q, cpl + 1);
-		dev_kfree_skb(skb);
+#ifdef HAVE_DEV_CONSUME_SKB_ANY
+		dev_consume_skb_any(skb);
+#else
+		dev_kfree_skb_any(skb);
+#endif
 	} else {
 		int last_desc;
 
@@ -1652,7 +1704,7 @@ static void t4_pktgl_free(const struct pkt_gl *gl)
 {
 	int n;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 2, 0)
-	const struct page_frag *p;
+ 	const struct page_frag *p;
 #else
 	const skb_frag_t *p;
 #endif
@@ -1706,7 +1758,7 @@ static void do_gro(struct sge_eth_rxq *rxq, const struct pkt_gl *gl,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 2, 0)
 	copy_frags(skb, gl, s->pktshift);
 #else
-	copy_frags(skb_shinfo(skb), gl, RX_PKT_PAD);
+	copy_frags(skb_shinfo(skb), gl, s->pktshift);
 #endif
 	skb->len = gl->tot_len - s->pktshift;
 	skb->data_len = skb->len;
@@ -1714,30 +1766,23 @@ static void do_gro(struct sge_eth_rxq *rxq, const struct pkt_gl *gl,
 	skb->ip_summed = CHECKSUM_UNNECESSARY;
 	skb_record_rx_queue(skb, rxq->rspq.idx);
 	if (rxq->rspq.netdev->features & NETIF_F_RXHASH)
+#ifdef HAVE_SKB_SET_HASH
+		skb_set_hash(skb, (__force u32)pkt->rsshdr.hash_val,
+			     PKT_HASH_TYPE_L3);
+#else
 		skb->rxhash = (__force u32)pkt->rsshdr.hash_val;
+#endif
 
 	if (unlikely(pkt->vlan_ex)) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0)
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0)
+#ifdef HAVE__VLAN_HWACCEL_PUT_TAG_3P
 		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), ntohs(pkt->vlan));
 #else
 		__vlan_hwaccel_put_tag(skb, ntohs(pkt->vlan));
 #endif
 		rxq->stats.vlan_ex++;
-#else
-		struct port_info *pi = netdev_priv(rxq->rspq.netdev);
-		struct vlan_group *grp = pi->vlan_grp;
-
-		rxq->stats.vlan_ex++;
-		if (likely(grp)) {
-			ret = vlan_gro_frags(&rxq->rspq.napi, grp,
-					     be16_to_cpu(pkt->vlan));
-			goto stats;
-		}
-#endif
 	}
 	ret = napi_gro_frags(&rxq->rspq.napi);
-stats:	if (ret == GRO_HELD)
+	if (ret == GRO_HELD)
 		rxq->stats.lro_pkts++;
 	else if (ret == GRO_MERGED || ret == GRO_MERGED_FREE)
 		rxq->stats.lro_merged++;
@@ -1763,15 +1808,13 @@ int t4_ethrx_handler(struct sge_rspq *q, const __be64 *rsp,
 	struct sge *s = &q->adap->sge;
 	int cpl_trace_pkt = is_t4(q->adap->params.chip) ?
 			    CPL_TRACE_PKT : CPL_TRACE_PKT_T5;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
-	struct port_info *pi;
-#endif
 
 	if (unlikely(*(u8 *)rsp == cpl_trace_pkt))
 		return handle_trace_pkt(q->adap, si);
 
 	pkt = (const struct cpl_rx_pkt *)rsp;
-	csum_ok = pkt->csum_calc && !pkt->err_vec;
+	csum_ok = pkt->csum_calc && !pkt->err_vec &&
+		  (q->netdev->features & NETIF_F_RXCSUM);
 	if ((pkt->l2info & htonl(RXF_TCP)) &&
 	    (q->netdev->features & NETIF_F_GRO) && csum_ok && !pkt->ip_frag) {
 		do_gro(rxq, si, pkt);
@@ -1789,19 +1832,16 @@ int t4_ethrx_handler(struct sge_rspq *q, const __be64 *rsp,
 	skb->protocol = eth_type_trans(skb, q->netdev);
 	skb_record_rx_queue(skb, q->idx);
 	if (skb->dev->features & NETIF_F_RXHASH)
+#ifdef HAVE_SKB_SET_HASH
+		skb_set_hash(skb, (__force u32)pkt->rsshdr.hash_val,
+			     PKT_HASH_TYPE_L3);
+#else
 		skb->rxhash = (__force u32)pkt->rsshdr.hash_val;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
-	pi = netdev_priv(skb->dev);
 #endif
 
 	rxq->stats.pkts++;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
-	if (csum_ok && (q->netdev->features & NETIF_F_RXCSUM) &&
-#else
-	if (csum_ok && (pi->rx_offload & RX_CSO) &&
-#endif
-	    (pkt->l2info & htonl(RXF_UDP | RXF_TCP))) {
+	if (csum_ok && (pkt->l2info & htonl(RXF_UDP | RXF_TCP))) {
 		if (!pkt->ip_frag) {
 			skb->ip_summed = CHECKSUM_UNNECESSARY;
 			rxq->stats.rx_cso++;
@@ -1816,20 +1856,24 @@ int t4_ethrx_handler(struct sge_rspq *q, const __be64 *rsp,
 
 	if (unlikely(pkt->vlan_ex)) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0)
+#ifdef HAVE__VLAN_HWACCEL_PUT_TAG_3P
 		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), ntohs(pkt->vlan));
 #else
 		__vlan_hwaccel_put_tag(skb, ntohs(pkt->vlan));
 #endif
 		rxq->stats.vlan_ex++;
 #else
+{
+		struct port_info *pi = netdev_priv(skb->dev);
 		struct vlan_group *grp = pi->vlan_grp;
-		if (likely(grp))
-			vlan_hwaccel_receive_skb(skb, grp, ntohs(pkt->vlan));
-		else
-			dev_kfree_skb_any(skb);
+
+                if (likely(grp))
+                        vlan_hwaccel_receive_skb(skb, grp, ntohs(pkt->vlan));
+                else
+                        dev_kfree_skb_any(skb);
 		rxq->stats.vlan_ex++;
 		return 0;
+}
 #endif
 	}
 	netif_receive_skb(skb);
@@ -1931,7 +1975,7 @@ static int process_responses(struct sge_rspq *q, int budget)
 		rsp_type = RSPD_TYPE(rc->type_gen);
 		if (likely(rsp_type == RSP_TYPE_FLBUF)) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 2, 0)
-			struct page_frag *fp;
+ 			struct page_frag *fp;
 #else
 			skb_frag_t *fp;
 #endif
@@ -2035,16 +2079,40 @@ static int napi_rx_handler(struct napi_struct *napi, int budget)
 	unsigned int params;
 	struct sge_rspq *q = container_of(napi, struct sge_rspq, napi);
 	int work_done = process_responses(q, budget);
+	u32 val;
 
 	if (likely(work_done < budget)) {
+		int timer_index;
+
 		napi_complete(napi);
-		params = q->next_intr_params;
-		q->next_intr_params = q->intr_params;
+		timer_index = QINTR_TIMER_IDX_GET(q->next_intr_params);
+
+		if (q->adaptive_rx) {
+			if (work_done > max(timer_pkt_quota[timer_index],
+					    MIN_NAPI_WORK))
+				timer_index = (timer_index + 1);
+			else
+				timer_index = timer_index - 1;
+
+			timer_index = clamp(timer_index, 0, SGE_TIMERREGS - 1);
+			q->next_intr_params = QINTR_TIMER_IDX(timer_index) |
+							      V_QINTR_CNT_EN;
+			params = q->next_intr_params;
+		} else {
+			params = q->next_intr_params;
+			q->next_intr_params = q->intr_params;
+		}
 	} else
 		params = QINTR_TIMER_IDX(7);
 
-	t4_write_reg(q->adap, MYPF_REG(SGE_PF_GTS), CIDXINC(work_done) |
-		     INGRESSQID((u32)q->cntxt_id) | SEINTARM(params));
+	val = CIDXINC(work_done) | SEINTARM(params);
+	if (is_t4(q->adap->params.chip)) {
+		t4_write_reg(q->adap, MYPF_REG(SGE_PF_GTS),
+			     val | INGRESSQID((u32)q->cntxt_id));
+	} else {
+		writel(val, q->adap->bar2 + q->udb + SGE_UDB_GTS);
+		wmb();
+	}
 	return work_done;
 }
 
@@ -2068,6 +2136,7 @@ static unsigned int process_intrq(struct adapter *adap)
 	unsigned int credits;
 	const struct rsp_ctrl *rc;
 	struct sge_rspq *q = &adap->sge.intrq;
+	u32 val;
 
 	spin_lock(&adap->sge.intrq_lock);
 	for (credits = 0; ; credits++) {
@@ -2086,8 +2155,14 @@ static unsigned int process_intrq(struct adapter *adap)
 		rspq_next(q);
 	}
 
-	t4_write_reg(adap, MYPF_REG(SGE_PF_GTS), CIDXINC(credits) |
-		     INGRESSQID(q->cntxt_id) | SEINTARM(q->intr_params));
+	val =  CIDXINC(credits) | SEINTARM(q->intr_params);
+	if (is_t4(adap->params.chip)) {
+		t4_write_reg(adap, MYPF_REG(SGE_PF_GTS),
+			     val | INGRESSQID(q->cntxt_id));
+	} else {
+		writel(val, adap->bar2 + q->udb + SGE_UDB_GTS);
+		wmb();
+	}
 	spin_unlock(&adap->sge.intrq_lock);
 	return credits;
 }
@@ -2150,7 +2225,7 @@ static void sge_rx_timer_cb(unsigned long data)
 			struct sge_fl *fl = s->egr_map[id];
 
 			clear_bit(id, s->starving_fl);
-			smp_mb__after_clear_bit();
+			smp_mb__after_atomic();
 
 			if (fl_starving(fl)) {
 				rxq = container_of(fl, struct sge_eth_rxq, fl);
@@ -2268,6 +2343,51 @@ static void sge_tx_timer_cb(unsigned long data)
 	mod_timer(&s->tx_timer, jiffies + (budget ? TX_QCHECK_PERIOD : 2));
 }
 
+/**
+ *      udb_address - return the BAR2 User Doorbell address for a Queue
+ *      @adap: the adapter
+ *      @cntxt_id: the Queue Context ID
+ *      @qpp: Queues Per Page (for all PFs)
+ *
+ *      Returns the BAR2 address of the user Doorbell associated with the
+ *      indicated Queue Context ID.  Note that this is only applicable
+ *      for T5 and later.
+ */
+static u64 udb_address(struct adapter *adap, unsigned int cntxt_id,
+		       unsigned int qpp)
+{
+	u64 udb;
+	unsigned int s_qpp;
+	unsigned short udb_density;
+	unsigned long qpshift;
+	int page;
+
+	BUG_ON(is_t4(adap->params.chip));
+
+	s_qpp = (QUEUESPERPAGEPF0 +
+		(QUEUESPERPAGEPF1 - QUEUESPERPAGEPF0) * adap->fn);
+	udb_density = 1 << ((qpp >> s_qpp) & QUEUESPERPAGEPF0_MASK);
+	qpshift = PAGE_SHIFT - ilog2(udb_density);
+	udb = (u64)cntxt_id << qpshift;
+	udb &= PAGE_MASK;
+	page = udb / PAGE_SIZE;
+	udb += (cntxt_id - (page * udb_density)) * SGE_UDB_SIZE;
+
+	return udb;
+}
+
+static u64 udb_address_eq(struct adapter *adap, unsigned int cntxt_id)
+{
+	return udb_address(adap, cntxt_id,
+			   t4_read_reg(adap, SGE_EGRESS_QUEUES_PER_PAGE_PF));
+}
+
+static u64 udb_address_iq(struct adapter *adap, unsigned int cntxt_id)
+{
+	return udb_address(adap, cntxt_id,
+			   t4_read_reg(adap, SGE_INGRESS_QUEUES_PER_PAGE_PF));
+}
+
 int t4_sge_alloc_rxq(struct adapter *adap, struct sge_rspq *iq, bool fwevtq,
 		     struct net_device *dev, int intr_idx,
 		     struct sge_fl *fl, rspq_handler_t hnd)
@@ -2333,6 +2453,8 @@ int t4_sge_alloc_rxq(struct adapter *adap, struct sge_rspq *iq, bool fwevtq,
 	iq->next_intr_params = iq->intr_params;
 	iq->cntxt_id = ntohs(c.iqid);
 	iq->abs_id = ntohs(c.physiqid);
+	if (!is_t4(adap->params.chip))
+		iq->udb = udb_address_iq(adap, iq->cntxt_id);
 	iq->size--;                           /* subtract status entry */
 	iq->netdev = dev;
 	iq->handler = hnd;
@@ -2348,6 +2470,12 @@ int t4_sge_alloc_rxq(struct adapter *adap, struct sge_rspq *iq, bool fwevtq,
 		fl->pidx = fl->cidx = 0;
 		fl->alloc_failed = fl->large_alloc_failed = fl->starving = 0;
 		adap->sge.egr_map[fl->cntxt_id - adap->sge.egr_start] = fl;
+
+		/* Note, we must initialize the Free List User Doorbell
+		 * address before refilling the Free List!
+		 */
+		if (!is_t4(adap->params.chip))
+			fl->udb = udb_address_eq(adap, fl->cntxt_id);
 		refill_fl(adap, fl, fl_cap(fl), GFP_KERNEL);
 	}
 	return 0;
@@ -2373,21 +2501,8 @@ err:
 static void init_txq(struct adapter *adap, struct sge_txq *q, unsigned int id)
 {
 	q->cntxt_id = id;
-	if (!is_t4(adap->params.chip)) {
-		unsigned int s_qpp;
-		unsigned short udb_density;
-		unsigned long qpshift;
-		int page;
-
-		s_qpp = QUEUESPERPAGEPF1 * adap->fn;
-		udb_density = 1 << QUEUESPERPAGEPF0_GET((t4_read_reg(adap,
-				SGE_EGRESS_QUEUES_PER_PAGE_PF) >> s_qpp));
-		qpshift = PAGE_SHIFT - ilog2(udb_density);
-		q->udb = q->cntxt_id << qpshift;
-		q->udb &= PAGE_MASK;
-		page = q->udb / PAGE_SIZE;
-		q->udb += (q->cntxt_id - (page * udb_density)) * 128;
-	}
+	if (!is_t4(adap->params.chip))
+		q->udb = udb_address_eq(adap, q->cntxt_id);
 
 	q->in_use = 0;
 	q->cidx = q->pidx = 0;
@@ -2422,7 +2537,8 @@ int t4_sge_alloc_eth_txq(struct adapter *adap, struct sge_eth_txq *txq,
 			    FW_EQ_ETH_CMD_PFN(adap->fn) | FW_EQ_ETH_CMD_VFN(0));
 	c.alloc_to_len16 = htonl(FW_EQ_ETH_CMD_ALLOC |
 				 FW_EQ_ETH_CMD_EQSTART | FW_LEN16(c));
-	c.viid_pkd = htonl(FW_EQ_ETH_CMD_VIID(pi->viid));
+	c.viid_pkd = htonl(FW_EQ_ETH_CMD_AUTOEQUEQE |
+			   FW_EQ_ETH_CMD_VIID(pi->viid));
 	c.fetchszm_to_iqid = htonl(FW_EQ_ETH_CMD_HOSTFCMODE(2) |
 				   FW_EQ_ETH_CMD_PCIECHN(pi->tx_chan) |
 				   FW_EQ_ETH_CMD_FETCHRO(1) |
@@ -2599,6 +2715,22 @@ static void free_rspq_fl(struct adapter *adap, struct sge_rspq *rq,
 }
 
 /**
+ *      t4_free_ofld_rxqs - free a block of consecutive Rx queues
+ *      @adap: the adapter
+ *      @n: number of queues
+ *      @q: pointer to first queue
+ *
+ *      Release the resources of a consecutive block of offload Rx queues.
+ */
+void t4_free_ofld_rxqs(struct adapter *adap, int n, struct sge_ofld_rxq *q)
+{
+	for ( ; n; n--, q++)
+		if (q->rspq.desc)
+			free_rspq_fl(adap, &q->rspq,
+				     q->fl.size ? &q->fl : NULL);
+}
+
+/**
  *	t4_free_sge_resources - free SGE resources
  *	@adap: the adapter
  *
@@ -2609,12 +2741,12 @@ void t4_free_sge_resources(struct adapter *adap)
 	int i;
 	struct sge_eth_rxq *eq = adap->sge.ethrxq;
 	struct sge_eth_txq *etq = adap->sge.ethtxq;
-	struct sge_ofld_rxq *oq = adap->sge.ofldrxq;
 
 	/* clean up Ethernet Tx/Rx queues */
 	for (i = 0; i < adap->sge.ethqsets; i++, eq++, etq++) {
 		if (eq->rspq.desc)
-			free_rspq_fl(adap, &eq->rspq, &eq->fl);
+			free_rspq_fl(adap, &eq->rspq,
+				     eq->fl.size ? &eq->fl : NULL);
 		if (etq->q.desc) {
 			t4_eth_eq_free(adap, adap->fn, adap->fn, 0,
 				       etq->q.cntxt_id);
@@ -2625,18 +2757,9 @@ void t4_free_sge_resources(struct adapter *adap)
 	}
 
 	/* clean up RDMA and iSCSI Rx queues */
-	for (i = 0; i < adap->sge.ofldqsets; i++, oq++) {
-		if (oq->rspq.desc)
-			free_rspq_fl(adap, &oq->rspq, &oq->fl);
-	}
-	for (i = 0, oq = adap->sge.rdmarxq; i < adap->sge.rdmaqs; i++, oq++) {
-		if (oq->rspq.desc)
-			free_rspq_fl(adap, &oq->rspq, &oq->fl);
-	}
-	for (i = 0, oq = adap->sge.rdmaciq; i < adap->sge.rdmaciqs; i++, oq++) {
-		if (oq->rspq.desc)
-			free_rspq_fl(adap, &oq->rspq, &oq->fl);
-	}
+	t4_free_ofld_rxqs(adap, adap->sge.ofldqsets, adap->sge.ofldrxq);
+	t4_free_ofld_rxqs(adap, adap->sge.rdmaqs, adap->sge.rdmarxq);
+	t4_free_ofld_rxqs(adap, adap->sge.rdmaciqs, adap->sge.rdmaciq);
 
 	/* clean up offload Tx queues */
 	for (i = 0; i < ARRAY_SIZE(adap->sge.ofldtxq); i++) {
@@ -2900,7 +3023,8 @@ static int t4_sge_init_hard(struct adapter *adap)
 int t4_sge_init(struct adapter *adap)
 {
 	struct sge *s = &adap->sge;
-	u32 sge_control, sge_conm_ctrl;
+	u32 sge_control, sge_control2, sge_conm_ctrl;
+	unsigned int ingpadboundary, ingpackboundary;
 	int ret, egress_threshold;
 
 	/*
@@ -2910,8 +3034,31 @@ int t4_sge_init(struct adapter *adap)
 	sge_control = t4_read_reg(adap, SGE_CONTROL);
 	s->pktshift = PKTSHIFT_GET(sge_control);
 	s->stat_len = (sge_control & EGRSTATUSPAGESIZE_MASK) ? 128 : 64;
-	s->fl_align = 1 << (INGPADBOUNDARY_GET(sge_control) +
-			    X_INGPADBOUNDARY_SHIFT);
+
+	/* T4 uses a single control field to specify both the PCIe Padding and
+	 * Packing Boundary.  T5 introduced the ability to specify these
+	 * separately.  The actual Ingress Packet Data alignment boundary
+	 * within Packed Buffer Mode is the maximum of these two
+	 * specifications.
+	 */
+	ingpadboundary = 1 << (INGPADBOUNDARY_GET(sge_control) +
+			       X_INGPADBOUNDARY_SHIFT);
+	if (is_t4(adap->params.chip)) {
+		s->fl_align = ingpadboundary;
+	} else {
+		/* T5 has a different interpretation of one of the PCIe Packing
+		 * Boundary values.
+		 */
+		sge_control2 = t4_read_reg(adap, SGE_CONTROL2_A);
+		ingpackboundary = INGPACKBOUNDARY_G(sge_control2);
+		if (ingpackboundary == INGPACKBOUNDARY_16B_X)
+			ingpackboundary = 16;
+		else
+			ingpackboundary = 1 << (ingpackboundary +
+						INGPACKBOUNDARY_SHIFT_X);
+
+		s->fl_align = max(ingpadboundary, ingpackboundary);
+	}
 
 	if (adap->flags & USING_SOFT_PARAMS)
 		ret = t4_sge_init_soft(adap);

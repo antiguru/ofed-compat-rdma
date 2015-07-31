@@ -40,7 +40,7 @@
 #include <be_roce.h>
 #include "ocrdma_sli.h"
 
-#define OCRDMA_ROCE_DRV_VERSION "10.2.287.0-ofed"
+#define OCRDMA_ROCE_DRV_VERSION "10.4.205.0u"
 
 #define OCRDMA_ROCE_DRV_DESC "Emulex OneConnect RoCE Driver"
 #define OCRDMA_NODE_DESC "Emulex OneConnect RoCE HCA"
@@ -55,12 +55,19 @@
 #define OCRDMA_UVERBS(CMD_NAME) (1ull << IB_USER_VERBS_CMD_##CMD_NAME)
 
 #define convert_to_64bit(lo, hi) ((u64)hi << 32 | (u64)lo)
+#define EQ_INTR_PER_SEC_THRSH_HI 150000
+#define EQ_INTR_PER_SEC_THRSH_LOW 100000
+#define EQ_AIC_MAX_EQD 20
+#define EQ_AIC_MIN_EQD 0
+
+void ocrdma_eqd_set_task(struct work_struct *work);
 
 struct ocrdma_dev_attr {
 	u8 fw_ver[32];
 	u32 vendor_id;
 	u32 device_id;
 	u16 max_pd;
+	u16 max_dpp_pds;
 	u16 max_cq;
 	u16 max_cqe;
 	u16 max_qp;
@@ -116,12 +123,19 @@ struct ocrdma_queue_info {
 	bool created;
 };
 
+struct ocrdma_aic_obj {         /* Adaptive interrupt coalescing (AIC) info */
+	u32 prev_eqd;
+	u64 eq_intr_cnt;
+	u64 prev_eq_intr_cnt;
+};
+
 struct ocrdma_eq {
 	struct ocrdma_queue_info q;
 	u32 vector;
 	int cq_cnt;
 	struct ocrdma_dev *dev;
 	char irq_name[32];
+	struct ocrdma_aic_obj aic_obj;
 };
 
 struct ocrdma_mq {
@@ -140,9 +154,50 @@ struct mqe_ctx {
 	bool fw_error_state;
 };
 
+struct ocrdma_hw_mr {
+	u32 lkey;
+	u8 fr_mr;
+	u8 remote_atomic;
+	u8 remote_rd;
+	u8 remote_wr;
+	u8 local_rd;
+	u8 local_wr;
+	u8 mw_bind;
+	u8 rsvd;
+	u64 len;
+	struct ocrdma_pbl *pbl_table;
+	u32 num_pbls;
+	u32 num_pbes;
+	u32 pbl_size;
+	u32 pbe_size;
+	u64 fbo;
+	u64 va;
+};
+
+struct ocrdma_mr {
+	struct ib_mr ibmr;
+	struct ib_umem *umem;
+	struct ocrdma_hw_mr hwmr;
+};
+
 struct ocrdma_stats {
 	u8 type;
 	struct ocrdma_dev *dev;
+};
+
+struct ocrdma_pd_resource_mgr {
+	u32 pd_norm_start;
+	u16 pd_norm_count;
+	u16 pd_norm_thrsh;
+	u16 max_normal_pd;
+	u32 pd_dpp_start;
+	u16 pd_dpp_count;
+	u16 pd_dpp_thrsh;
+	u16 max_dpp_pd;
+	u16 dpp_page_index;
+	unsigned long *pd_norm_bitmap;
+	unsigned long *pd_dpp_bitmap;
+	bool pd_prealloc_valid;
 };
 
 struct stats_mem {
@@ -172,6 +227,7 @@ struct ocrdma_dev {
 
 	struct ocrdma_eq *eq_tbl;
 	int eq_cnt;
+	struct delayed_work eqd_work;
 	u16 base_eqid;
 	u16 max_eq;
 
@@ -229,7 +285,12 @@ struct ocrdma_dev {
 	struct ocrdma_stats rx_qp_err_stats;
 	struct ocrdma_stats tx_dbg_stats;
 	struct ocrdma_stats rx_dbg_stats;
+	struct ocrdma_stats driver_stats;
+	struct ocrdma_stats reset_stats;
 	struct dentry *dir;
+	atomic_t async_err_stats[OCRDMA_MAX_ASYNC_ERRORS];
+	atomic_t cqe_err_stats[OCRDMA_MAX_CQE_ERR];
+	struct ocrdma_pd_resource_mgr *pd_mgr;
 };
 
 struct ocrdma_cq {
@@ -309,7 +370,6 @@ struct ocrdma_srq {
 
 struct ocrdma_qp {
 	struct ib_qp ibqp;
-	struct ocrdma_dev *dev;
 
 	u8 __iomem *sq_db;
 	struct ocrdma_qp_hwq_info sq;
@@ -350,32 +410,6 @@ struct ocrdma_qp {
 	bool dpp_enabled;
 	u8 *ird_q_va;
 	bool signaled;
-};
-
-struct ocrdma_hw_mr {
-	u32 lkey;
-	u8 fr_mr;
-	u8 remote_atomic;
-	u8 remote_rd;
-	u8 remote_wr;
-	u8 local_rd;
-	u8 local_wr;
-	u8 mw_bind;
-	u8 rsvd;
-	u64 len;
-	struct ocrdma_pbl *pbl_table;
-	u32 num_pbls;
-	u32 num_pbes;
-	u32 pbl_size;
-	u32 pbe_size;
-	u64 fbo;
-	u64 va;
-};
-
-struct ocrdma_mr {
-	struct ib_mr ibmr;
-	struct ib_umem *umem;
-	struct ocrdma_hw_mr hwmr;
 };
 
 struct ocrdma_ucontext {
@@ -473,6 +507,18 @@ static inline int is_cqe_wr_imm(struct ocrdma_cqe *cqe)
 		OCRDMA_CQE_WRITE_IMM) ? 1 : 0;
 }
 
+static inline int ocrdma_resolve_dmac(struct ocrdma_dev *dev,
+		struct ib_ah_attr *ah_attr, u8 *mac_addr)
+{
+	struct in6_addr in6;
+
+	memcpy(&in6, ah_attr->grh.dgid.raw, sizeof(in6));
+	if (rdma_is_multicast_addr(&in6))
+		rdma_get_mcast_mac(&in6, mac_addr);
+	else
+		memcpy(mac_addr, ah_attr->dmac, ETH_ALEN);
+	return 0;
+}
 
 static inline char *hca_name(struct ocrdma_dev *dev)
 {

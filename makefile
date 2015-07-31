@@ -51,7 +51,7 @@ all: kernel
 install: install_kernel
 install_kernel: install_modules
 
-autoconf_h=$(shell /bin/ls -1 $(KSRC)/include/*/autoconf.h 2> /dev/null | head -1)
+autoconf_h=$(shell /bin/ls -1 $(KSRC_OBJ)/include/*/autoconf.h 2> /dev/null | head -1)
 kconfig_h=$(shell /bin/ls -1 $(KSRC)/include/*/kconfig.h 2> /dev/null | head -1)
 
 ifneq ($(kconfig_h),)
@@ -70,9 +70,9 @@ kernel: $(COMPAT_CONFIG) $(COMPAT_AUTOCONF)
 	@echo "Building kernel modules"
 	@echo "Kernel version: $(KVERSION)"
 	@echo "Modules directory: $(INSTALL_MOD_PATH)/$(MODULES_DIR)"
-	@echo "Kernel sources: $(KSRC)"
+	@echo "Kernel sources: $(KSRC_OBJ)"
 	env CWD=$(CWD) BACKPORT_INCLUDES=$(BACKPORT_INCLUDES) \
-		$(MAKE) -C $(KSRC) SUBDIRS="$(CWD)" \
+		$(MAKE) -C $(KSRC_OBJ) SUBDIRS="$(CWD)" \
 		V=$(V) KBUILD_NOCMDDEP=1 $(WITH_MAKE_PARAMS) \
 		CONFIG_MEMTRACK=$(CONFIG_MEMTRACK) \
 		CONFIG_DEBUG_INFO=$(CONFIG_DEBUG_INFO) \
@@ -89,6 +89,7 @@ kernel: $(COMPAT_CONFIG) $(COMPAT_AUTOCONF)
 		CONFIG_INFINIBAND_ADDR_TRANS=$(CONFIG_INFINIBAND_ADDR_TRANS) \
 		CONFIG_INFINIBAND_MTHCA=$(CONFIG_INFINIBAND_MTHCA) \
 		CONFIG_INFINIBAND_IPOIB_DEBUG=$(CONFIG_INFINIBAND_IPOIB_DEBUG) \
+		CONFIG_INFINIBAND_ISERT=$(CONFIG_INFINIBAND_ISERT) \
 		CONFIG_INFINIBAND_ISER=$(CONFIG_INFINIBAND_ISER) \
 		CONFIG_SCSI_ISCSI_ATTRS=$(CONFIG_SCSI_ISCSI_ATTRS) \
 		CONFIG_ISCSI_TCP=$(CONFIG_ISCSI_TCP) \
@@ -133,20 +134,20 @@ kernel: $(COMPAT_CONFIG) $(COMPAT_AUTOCONF)
 		CONFIG_INFINIBAND_SCIF=$(CONFIG_INFINIBAND_SCIF) \
 		CONFIG_INFINIBAND_AMSO1100=$(CONFIG_INFINIBAND_AMSO1100) \
 		CONFIG_SUNRPC_XPRT_RDMA=$(CONFIG_SUNRPC_XPRT_RDMA) \
-		CONFIG_NFSD_RDMA=$(CONFIG_NFSD_RDMA) \
+		CONFIG_SUNRPC_XPRT_RDMA_CLIENT=$(CONFIG_SUNRPC_XPRT_RDMA_CLIENT) \
+		CONFIG_SUNRPC_XPRT_RDMA_SERVER=$(CONFIG_SUNRPC_XPRT_RDMA_SERVER) \
 		CONFIG_INFINIBAND_OCRDMA=$(CONFIG_INFINIBAND_OCRDMA) \
 		CONFIG_BE2NET=$(CONFIG_BE2NET) \
 		CONFIG_INFINIBAND_ISERT=$(CONFIG_INFINIBAND_ISERT) \
+		CONFIG_INFINIBAND_USNIC=$(CONFIG_INFINIBAND_USNIC) \
 		LINUXINCLUDE=' \
 		-D__OFED_BUILD__ \
 		$(CFLAGS) \
 		-include $(autoconf_h) \
-		-include $(CWD)/include/linux/autoconf.h \
 		$(KCONFIG_H) \
 		-include $(CWD)/include/linux/compat-2.6.h \
 		$(BACKPORT_INCLUDES) \
 		$(KERNEL_MEMTRACK_CFLAGS) \
-		$(KERNEL_NFS_FS_CFLAGS) \
 		$(OPENIB_KERNEL_EXTRA_CFLAGS) \
 		-I$(CWD)/include \
 		-I$(CWD)/include/uapi \
@@ -176,7 +177,7 @@ kernel: $(COMPAT_CONFIG) $(COMPAT_AUTOCONF)
 install_modules:
 	@echo "Installing kernel modules"
 
-	$(MAKE) -C $(KSRC) SUBDIRS="$(CWD)" \
+	$(MAKE) -C $(KSRC_OBJ) SUBDIRS="$(CWD)" \
 		INSTALL_MOD_PATH=$(INSTALL_MOD_PATH) \
 		INSTALL_MOD_DIR=$(INSTALL_MOD_DIR) \
 		$(WITH_MAKE_PARAMS) modules_install;
@@ -185,7 +186,7 @@ install_modules:
 clean: clean_kernel
 
 clean_kernel:
-	$(MAKE) -C $(KSRC) SUBDIRS="$(CWD)" $(WITH_MAKE_PARAMS) clean
+	$(MAKE) -C $(KSRC_OBJ) SUBDIRS="$(CWD)" $(WITH_MAKE_PARAMS) clean
 	@/bin/rm -f $(clean-files)
 
 clean-files := Module.symvers modules.order Module.markers compat/modules.order

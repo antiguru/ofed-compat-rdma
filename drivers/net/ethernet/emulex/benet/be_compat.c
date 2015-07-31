@@ -1,6 +1,6 @@
 #include "be.h"
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 32) && defined(CONFIG_PCI_IOV)
+#if defined(CONFIG_PCI_IOV)
 #define sriov_kernel                            true
 #else
 #define sriov_kernel                            false
@@ -35,7 +35,7 @@ int be_find_vfs(struct pci_dev *pdev, int vf_state)
 	return (vf_state == ASSIGNED) ? assigned_vfs : vfs;
 }
 
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 10, 0)
+#ifndef HAVE_PCI_VF_ASSIGNED
 /**
  * pci_vfs_assigned - returns number of VFs are assigned to a guest
  * @dev: the PCI device
@@ -47,6 +47,7 @@ int pci_vfs_assigned(struct pci_dev *pdev)
 {
 	return be_find_vfs(pdev, ASSIGNED);
 }
+
 /**
  * pci_num_vf - return number of VFs associated with a PF device_release_driver
  * @dev: the PCI device
@@ -57,6 +58,7 @@ int pci_num_vf(struct pci_dev *pdev)
 {
 	return be_find_vfs(pdev, ENABLED);
 }
+
 int pci_sriov_get_totalvfs(struct pci_dev *pdev)
 {
 	u16 num = 0;
@@ -71,24 +73,19 @@ int pci_sriov_get_totalvfs(struct pci_dev *pdev)
 #endif
 #endif /* CONFIG_PCI_IOV */
 
-#if LINUX_VERSION_CODE > KERNEL_VERSION(3, 0, 0)
-unsigned long u64_stats_fetch_begin_compat(struct u64_stats_sync *sync)
+void be_wait_for_vfs_detach(struct pci_dev *pdev)
 {
-	return u64_stats_fetch_begin_bh(sync);
-}
-bool u64_stats_fetch_retry_compat(const struct u64_stats_sync *syncp,
-				  unsigned int start)
-{
-	return u64_stats_fetch_retry_bh(syncp, start);
-}
-#else
-unsigned long u64_stats_fetch_begin_compat(struct u64_stats_sync *sync)
-{
-	return 0;
-}
-bool u64_stats_fetch_retry_compat(const struct u64_stats_sync *syncp,
-				  unsigned int start)
-{
-	return false;
-}
+#ifdef CONFIG_PCI_IOV
+#ifndef HAVE_PCI_VF_ASSIGNED
+	if (pci_vfs_assigned(pdev))
+		 dev_warn(&pdev->dev,
+			  "Waiting to unload, until VFs are detached\n");
+	while (1) {
+		if (pci_vfs_assigned(pdev) == 0)
+			break;
+
+		msleep(1000);
+	}
 #endif
+#endif
+}

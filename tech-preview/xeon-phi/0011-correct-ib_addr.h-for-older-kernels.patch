@@ -5,14 +5,10 @@ Subject: [PATCH 11/12] correct ib_addr.h for older kernels
 
 Signed-off-by: Phil Cayton <phil.cayton@intel.com>
 ---
- include/rdma/ib_addr.h | 22 ++++++++++++++++++++++
- 1 file changed, 22 insertions(+)
-
-diff --git a/include/rdma/ib_addr.h b/include/rdma/ib_addr.h
-index f3ac0f2..f29e2ef 100644
---- a/include/rdma/ib_addr.h
-+++ b/include/rdma/ib_addr.h
-@@ -210,6 +210,27 @@ static inline enum ib_mtu iboe_get_mtu(int mtu)
+diff -urN a10/include/rdma/ib_addr.h a11/include/rdma/ib_addr.h
+--- a10/include/rdma/ib_addr.h	2015-01-05 15:10:42.263447365 -0800
++++ a11/include/rdma/ib_addr.h	2015-01-05 15:12:36.058442572 -0800
+@@ -239,6 +239,27 @@
  		return 0;
  }
  
@@ -40,7 +36,7 @@ index f3ac0f2..f29e2ef 100644
  static inline int iboe_get_rate(struct net_device *dev)
  {
  	struct ethtool_cmd cmd;
-@@ -234,6 +255,7 @@ static inline int iboe_get_rate(struct net_device *dev)
+@@ -263,6 +284,7 @@
  	else
  		return IB_RATE_PORT_CURRENT;
  }
@@ -48,6 +44,3 @@ index f3ac0f2..f29e2ef 100644
  
  static inline int rdma_link_local_addr(struct in6_addr *addr)
  {
--- 
-1.8.3.1
-

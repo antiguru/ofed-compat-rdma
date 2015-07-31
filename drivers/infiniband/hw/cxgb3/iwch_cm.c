@@ -439,6 +439,7 @@ static int send_abort(struct iwch_ep *ep, struct sk_buff *skb, gfp_t gfp)
 	skb->priority = CPL_PRIORITY_DATA;
 	set_arp_failure_handler(skb, abort_arp_failure);
 	req = (struct cpl_abort_req *) skb_put(skb, sizeof(*req));
+	memset(req, 0, sizeof(*req));
 	req->wr.wr_hi = htonl(V_WR_OP(FW_WROPCODE_OFLD_HOST_ABORT_CON_REQ));
 	req->wr.wr_lo = htonl(V_WR_TID(ep->hwtid));
 	OPCODE_TID(req) = htonl(MK_OPCODE_TID(CPL_ABORT_REQ, ep->hwtid));
@@ -1403,11 +1404,7 @@ static int pass_accept_req(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 	dst = &rt->u.dst;
 #endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
 	l2t = t3_l2t_get(tdev, dst, NULL, &req->peer_ip);
-#else
-	l2t = t3_l2t_get(tdev, dst, NULL);
-#endif
 	if (!l2t) {
 		printk(KERN_ERR MOD "%s - failed to allocate l2t entry!\n",
 		       __func__);
@@ -1985,12 +1982,8 @@ int iwch_connect(struct iw_cm_id *cm_id, struct iw_cm_conn_param *conn_param)
 	ep->dst = &rt->u.dst;
 #endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
 	ep->l2t = t3_l2t_get(ep->com.tdev, ep->dst, NULL,
 			     &raddr->sin_addr.s_addr);
-#else
-	ep->l2t = t3_l2t_get(ep->com.tdev, ep->dst, NULL);
-#endif
 	if (!ep->l2t) {
 		printk(KERN_ERR MOD "%s - cannot alloc l2e.\n", __func__);
 		err = -ENOMEM;

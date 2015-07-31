@@ -39,16 +39,11 @@
 #include <linux/vmalloc.h>
 #include <linux/highmem.h>
 #include <linux/io.h>
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0)
 #include <linux/aio.h>
-#else
-#include <linux/uio.h>
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0) */
 #include <linux/jiffies.h>
 #include <asm/pgtable.h>
 #include <linux/delay.h>
 #include <linux/export.h>
-#include <linux/moduleparam.h>
 
 #include "qib.h"
 #include "qib_common.h"
@@ -976,11 +971,7 @@ static int mmap_kvaddr(struct vm_area_struct *vma, u64 pgaddr,
 
 	vma->vm_pgoff = (unsigned long) addr >> PAGE_SHIFT;
 	vma->vm_ops = &qib_file_vm_ops;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0)
 	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
-#else
-	vma->vm_flags |= VM_RESERVED | VM_DONTEXPAND;
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0) */
 	ret = 1;
 
 bail:
@@ -1468,7 +1459,7 @@ static int get_a_ctxt(struct file *fp, const struct qib_user_info *uinfo,
 					cused++;
 				else
 					cfree++;
-			if (pusable && cfree && cused < inuse) {
+			if (cfree && cused < inuse) {
 				udd = dd;
 				inuse = cused;
 			}

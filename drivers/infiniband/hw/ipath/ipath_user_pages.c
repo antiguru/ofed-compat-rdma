@@ -54,7 +54,7 @@ static void __ipath_release_user_pages(struct page **p, size_t num_pages,
 
 /* call with current->mm->mmap_sem held */
 static int __ipath_get_user_pages(unsigned long start_page, size_t num_pages,
-				  struct page **p, struct vm_area_struct **vma)
+				  struct page **p)
 {
 	unsigned long lock_limit;
 	size_t got;
@@ -74,16 +74,12 @@ static int __ipath_get_user_pages(unsigned long start_page, size_t num_pages,
 		ret = get_user_pages(current, current->mm,
 				     start_page + got * PAGE_SIZE,
 				     num_pages - got, 1, 1,
-				     p + got, vma);
+				     p + got, NULL);
 		if (ret < 0)
 			goto bail_release;
 	}
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,2,0))
 	current->mm->pinned_vm += num_pages;
-#else
-	current->mm->locked_vm += num_pages;
-#endif
 
 	ret = 0;
 	goto bail;
@@ -169,7 +165,7 @@ int ipath_get_user_pages(unsigned long start_page, size_t num_pages,
 
 	down_write(&current->mm->mmap_sem);
 
-	ret = __ipath_get_user_pages(start_page, num_pages, p, NULL);
+	ret = __ipath_get_user_pages(start_page, num_pages, p);
 
 	up_write(&current->mm->mmap_sem);
 
@@ -182,11 +178,7 @@ void ipath_release_user_pages(struct page **p, size_t num_pages)
 
 	__ipath_release_user_pages(p, num_pages, 1);
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,2,0))
 	current->mm->pinned_vm -= num_pages;
-#else
-	current->mm->locked_vm -= num_pages;
-#endif
 
 	up_write(&current->mm->mmap_sem);
 }
@@ -203,11 +195,7 @@ static void user_pages_account(struct work_struct *_work)
 		container_of(_work, struct ipath_user_pages_work, work);
 
 	down_write(&work->mm->mmap_sem);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,2,0))
 	work->mm->pinned_vm -= work->num_pages;
-#else
-	work->mm->locked_vm -= work->num_pages;
-#endif
 	up_write(&work->mm->mmap_sem);
 	mmput(work->mm);
 	kfree(work);

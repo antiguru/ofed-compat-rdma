@@ -298,7 +298,12 @@ static void free_tx_desc(struct adapter *adapter, struct sge_txq *q,
 			if (need_unmap)
 				unmap_skb(d->skb, q, cidx, pdev);
 			if (d->eop) {
-				kfree_skb(d->skb);
+#ifdef HAVE_DEV_CONSUME_SKB_ANY
+				dev_consume_skb_any(d->skb);
+#else
+				dev_kfree_skb_any(d->skb);
+#endif
+
 				d->skb = NULL;
 			}
 		}
@@ -1188,7 +1193,11 @@ static void write_tx_pkt_wr(struct adapter *adap, struct sk_buff *skb,
 			cpl->wr.wr_lo = htonl(V_WR_LEN(flits) | V_WR_GEN(gen) |
 					      V_WR_TID(q->token));
 			wr_gen2(d, gen);
-			kfree_skb(skb);
+#ifdef HAVE_DEV_CONSUME_SKB_ANY
+			dev_consume_skb_any(skb);
+#else
+			dev_kfree_skb_any(skb);
+#endif
 			return;
 		}
 
@@ -1233,7 +1242,7 @@ netdev_tx_t t3_eth_xmit(struct sk_buff *skb, struct net_device *dev)
 	 * anything shorter than an Ethernet header.
 	 */
 	if (unlikely(skb->len < ETH_HLEN)) {
-		dev_kfree_skb(skb);
+		dev_kfree_skb_any(skb);
 		return NETDEV_TX_OK;
 	}
 
@@ -1379,7 +1388,7 @@ static inline int check_desc_avail(struct adapter *adap, struct sge_txq *q,
 		struct sge_qset *qs = txq_to_qset(q, qid);
 
 		set_bit(qid, &qs->txq_stopped);
-		smp_mb__after_clear_bit();
+		smp_mb__after_atomic();
 
 		if (should_restart_tx(q) &&
 		    test_and_clear_bit(qid, &qs->txq_stopped))
@@ -1492,7 +1501,7 @@ static void restart_ctrlq(unsigned long data)
 
 	if (!skb_queue_empty(&q->sendq)) {
 		set_bit(TXQ_CTRL, &qs->txq_stopped);
-		smp_mb__after_clear_bit();
+		smp_mb__after_atomic();
 
 		if (should_restart_tx(q) &&
 		    test_and_clear_bit(TXQ_CTRL, &qs->txq_stopped))
@@ -1599,7 +1608,8 @@ static void write_ofld_wr(struct adapter *adap, struct sk_buff *skb,
 	flits = skb_transport_offset(skb) / 8;
 	sgp = ndesc == 1 ? (struct sg_ent *)&d->flit[flits] : sgl;
 	sgl_flits = make_sgl(skb, sgp, skb_transport_header(skb),
-			     skb->tail - skb->transport_header,
+			     skb_tail_pointer(skb) -
+			     skb_transport_header(skb),
 			     adap->pdev);
 	if (need_skb_unmap()) {
 		setup_deferred_unmapping(skb, adap->pdev, sgp, sgl_flits);
@@ -1696,7 +1706,7 @@ again:	reclaim_completed_tx(adap, q, TX_RECLAIM_CHUNK);
 
 		if (unlikely(q->size - q->in_use < ndesc)) {
 			set_bit(TXQ_OFLD, &qs->txq_stopped);
-			smp_mb__after_clear_bit();
+			smp_mb__after_atomic();
 
 			if (should_restart_tx(q) &&
 			    test_and_clear_bit(TXQ_OFLD, &qs->txq_stopped))
@@ -2019,11 +2029,7 @@ static void rx_eth(struct adapter *adap, struct sge_rspq *rq,
 	skb_pull(skb, sizeof(*p) + pad);
 	skb->protocol = eth_type_trans(skb, adap->port[p->iff]);
 	pi = netdev_priv(skb->dev);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
 	if ((skb->dev->features & NETIF_F_RXCSUM) && p->csum_valid &&
-#else
-	if ((pi->rx_offload & T3_RX_CSUM) && p->csum_valid &&
-#endif
 	    p->csum == htons(0xffff) && !p->fragment) {
 		qs->port_stats[SGE_PSTAT_RX_CSUM_GOOD]++;
 		skb->ip_summed = CHECKSUM_UNNECESSARY;
@@ -2031,38 +2037,15 @@ static void rx_eth(struct adapter *adap, struct sge_rspq *rq,
 		skb_checksum_none_assert(skb);
 	skb_record_rx_queue(skb, qs - &adap->sge.qs[pi->first_qset]);
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0)
 	if (p->vlan_valid) {
-#else
-	if (unlikely(p->vlan_valid)) {
-		struct vlan_group *grp = pi->vlan_grp;
-#endif
 		qs->port_stats[SGE_PSTAT_VLANEX]++;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0)
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0))
+		__vlan_hwaccel_put_tag(skb, ntohs(p->vlan));
+#else
 		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), ntohs(p->vlan));
+#endif
 	}
 	if (rq->polling) {
-#else
-	if (likely(grp))
-		if (lro)
-			vlan_gro_receive(&qs->napi, grp,
-					ntohs(p->vlan), skb);
-		else {
-			if (unlikely(pi->iscsic.flags)) {
-				unsigned short vtag = ntohs(p->vlan) &
-					VLAN_VID_MASK;
-				skb->dev = vlan_group_get_device(grp,
-						vtag);
-				cxgb3_process_iscsi_prov_pack(pi, skb);
-			}
-			__vlan_hwaccel_rx(skb, grp, ntohs(p->vlan),
-					rq->polling);
-		}
-	else
-		dev_kfree_skb_any(skb);
-	} else if (rq->polling) {
-#endif
-
 		if (lro)
 			napi_gro_receive(&qs->napi, skb);
 		else {
@@ -2134,11 +2117,7 @@ static void lro_add_page(struct adapter *adap, struct sge_qset *qs,
 		offset = 2 + sizeof(struct cpl_rx_pkt);
 		cpl = qs->lro_va = sd->pg_chunk.va + 2;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
 		if ((qs->netdev->features & NETIF_F_RXCSUM) &&
-#else
-		if ((pi->rx_offload & T3_RX_CSUM) &&
-#endif
 		     cpl->csum_valid && cpl->csum == htons(0xffff)) {
 			skb->ip_summed = CHECKSUM_UNNECESSARY;
 			qs->port_stats[SGE_PSTAT_RX_CSUM_GOOD]++;
@@ -2164,21 +2143,14 @@ static void lro_add_page(struct adapter *adap, struct sge_qset *qs,
 
 	skb_record_rx_queue(skb, qs - &adap->sge.qs[pi->first_qset]);
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0)
 	if (cpl->vlan_valid) {
 		qs->port_stats[SGE_PSTAT_VLANEX]++;
-		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), ntohs(cpl->vlan));
-	}
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0))
+		__vlan_hwaccel_put_tag(skb, ntohs(cpl->vlan));
 #else
-	if (unlikely(cpl->vlan_valid)) {
-		struct vlan_group *grp = pi->vlan_grp;
-
-		if (likely(grp != NULL)) {
-			vlan_gro_frags(&qs->napi, grp, ntohs(cpl->vlan));
-			return;
-		}
-	}
+		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), ntohs(cpl->vlan));
 #endif
+	}
 	napi_gro_frags(&qs->napi);
 }
 

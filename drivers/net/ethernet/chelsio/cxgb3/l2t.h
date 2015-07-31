@@ -109,13 +109,8 @@ static inline void set_arp_failure_handler(struct sk_buff *skb,
 
 void t3_l2e_free(struct l2t_data *d, struct l2t_entry *e);
 void t3_l2t_update(struct t3cdev *dev, struct neighbour *neigh);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
 struct l2t_entry *t3_l2t_get(struct t3cdev *cdev, struct dst_entry *dst,
 			     struct net_device *dev, const void *daddr);
-#else
-struct l2t_entry *t3_l2t_get(struct t3cdev *cdev, struct dst_entry *dst,
-			     struct net_device *dev);
-#endif
 int t3_l2t_send_slow(struct t3cdev *dev, struct sk_buff *skb,
 		     struct l2t_entry *e);
 void t3_l2t_send_event(struct t3cdev *dev, struct l2t_entry *e);

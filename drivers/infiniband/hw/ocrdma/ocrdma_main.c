@@ -53,20 +53,6 @@ static DEFINE_IDR(ocrdma_dev_id);
 
 static union ib_gid ocrdma_zero_sgid;
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 9, 0))
-static int ocrdma_get_instance(void)
-{
-	int instance = 0;
-
-	/* Assign an unused number */
-	if (!idr_pre_get(&ocrdma_dev_id, GFP_KERNEL))
-		return -1;
-	if (idr_get_new(&ocrdma_dev_id, NULL, &instance))
-		return -1;
-	return instance;
-}
-#endif
-
 void ocrdma_get_guid(struct ocrdma_dev *dev, u8 *guid)
 {
 	u8 mac_addr[6];
@@ -82,46 +68,24 @@ void ocrdma_get_guid(struct ocrdma_dev *dev, u8 *guid)
 	guid[7] = mac_addr[5];
 }
 
-static void ocrdma_build_sgid_mac(union ib_gid *sgid, unsigned char *mac_addr,
-				  bool is_vlan, u16 vlan_id)
-{
-	sgid->global.subnet_prefix = cpu_to_be64(0xfe80000000000000LL);
-	sgid->raw[8] = mac_addr[0] ^ 2;
-	sgid->raw[9] = mac_addr[1];
-	sgid->raw[10] = mac_addr[2];
-	if (is_vlan) {
-		sgid->raw[11] = vlan_id >> 8;
-		sgid->raw[12] = vlan_id & 0xff;
-	} else {
-		sgid->raw[11] = 0xff;
-		sgid->raw[12] = 0xfe;
-	}
-	sgid->raw[13] = mac_addr[3];
-	sgid->raw[14] = mac_addr[4];
-	sgid->raw[15] = mac_addr[5];
-}
-
-static bool ocrdma_add_sgid(struct ocrdma_dev *dev, unsigned char *mac_addr,
-			    bool is_vlan, u16 vlan_id)
+static bool ocrdma_add_sgid(struct ocrdma_dev *dev, union ib_gid *new_sgid)
 {
 	int i;
-	union ib_gid new_sgid;
 	unsigned long flags;
 
 	memset(&ocrdma_zero_sgid, 0, sizeof(union ib_gid));
 
-	ocrdma_build_sgid_mac(&new_sgid, mac_addr, is_vlan, vlan_id);
 
 	spin_lock_irqsave(&dev->sgid_lock, flags);
 	for (i = 0; i < OCRDMA_MAX_SGID; i++) {
 		if (!memcmp(&dev->sgid_tbl[i], &ocrdma_zero_sgid,
 			    sizeof(union ib_gid))) {
 			/* found free entry */
-			memcpy(&dev->sgid_tbl[i], &new_sgid,
+			memcpy(&dev->sgid_tbl[i], new_sgid,
 			       sizeof(union ib_gid));
 			spin_unlock_irqrestore(&dev->sgid_lock, flags);
 			return true;
-		} else if (!memcmp(&dev->sgid_tbl[i], &new_sgid,
+		} else if (!memcmp(&dev->sgid_tbl[i], new_sgid,
 				   sizeof(union ib_gid))) {
 			/* entry already present, no addition is required. */
 			spin_unlock_irqrestore(&dev->sgid_lock, flags);
@@ -132,20 +96,17 @@ static bool ocrdma_add_sgid(struct ocrdma_dev *dev, unsigned char *mac_addr,
 	return false;
 }
 
-static bool ocrdma_del_sgid(struct ocrdma_dev *dev, unsigned char *mac_addr,
-			    bool is_vlan, u16 vlan_id)
+static bool ocrdma_del_sgid(struct ocrdma_dev *dev, union ib_gid *sgid)
 {
 	int found = false;
 	int i;
-	union ib_gid sgid;
 	unsigned long flags;
 
-	ocrdma_build_sgid_mac(&sgid, mac_addr, is_vlan, vlan_id);
 
 	spin_lock_irqsave(&dev->sgid_lock, flags);
 	/* first is default sgid, which cannot be deleted. */
 	for (i = 1; i < OCRDMA_MAX_SGID; i++) {
-		if (!memcmp(&dev->sgid_tbl[i], &sgid, sizeof(union ib_gid))) {
+		if (!memcmp(&dev->sgid_tbl[i], sgid, sizeof(union ib_gid))) {
 			/* found matching entry */
 			memset(&dev->sgid_tbl[i], 0, sizeof(union ib_gid));
 			found = true;
@@ -156,77 +117,18 @@ static bool ocrdma_del_sgid(struct ocrdma_dev *dev, unsigned char *mac_addr,
 	return found;
 }
 
-static void ocrdma_add_default_sgid(struct ocrdma_dev *dev)
+static int ocrdma_addr_event(unsigned long event, struct net_device *netdev,
+			     union ib_gid *gid)
 {
-	/* GID Index 0 - Invariant manufacturer-assigned EUI-64 */
-	union ib_gid *sgid = &dev->sgid_tbl[0];
-
-	sgid->global.subnet_prefix = cpu_to_be64(0xfe80000000000000LL);
-	ocrdma_get_guid(dev, &sgid->raw[8]);
-}
-
-#if IS_ENABLED(CONFIG_VLAN_8021Q)
-static void ocrdma_add_vlan_sgids(struct ocrdma_dev *dev)
-{
-	struct net_device *netdev, *tmp;
-	u16 vlan_id;
-	bool is_vlan;
-
-	netdev = dev->nic_info.netdev;
-
-	rcu_read_lock();
-	for_each_netdev_rcu(&init_net, tmp) {
-		if (
-			netdev && (netdev == tmp ||
-				rdma_vlan_dev_real_dev(tmp) == netdev)) {
-			if (!netif_running(tmp) || !netif_oper_up(tmp))
-				continue;
-			if (netdev != tmp) {
-				vlan_id = vlan_dev_vlan_id(tmp);
-				is_vlan = true;
-			} else {
-				is_vlan = false;
-				vlan_id = 0;
-				tmp = netdev;
-			}
-			ocrdma_add_sgid(dev, tmp->dev_addr, is_vlan, vlan_id);
-		}
-	}
-	rcu_read_unlock();
-}
-#else
-static void ocrdma_add_vlan_sgids(struct ocrdma_dev *dev)
-{
-
-}
-#endif /* VLAN */
-
-static int ocrdma_build_sgid_tbl(struct ocrdma_dev *dev)
-{
-	ocrdma_add_default_sgid(dev);
-	ocrdma_add_vlan_sgids(dev);
-	return 0;
-}
-
-#if IS_ENABLED(CONFIG_IPV6)
-
-static int ocrdma_inet6addr_event(struct notifier_block *notifier,
-				  unsigned long event, void *ptr)
-{
-	struct inet6_ifaddr *ifa = (struct inet6_ifaddr *)ptr;
-	struct net_device *netdev = ifa->idev->dev;
 	struct ib_event gid_event;
 	struct ocrdma_dev *dev;
 	bool found = false;
 	bool updated = false;
 	bool is_vlan = false;
-	u16 vid = 0;
 
 	is_vlan = netdev->priv_flags & IFF_802_1Q_VLAN;
-	if (is_vlan) {
-		vid = vlan_dev_vlan_id(netdev);
+	if (is_vlan)
 		netdev = rdma_vlan_dev_real_dev(netdev);
-	}
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(dev, &ocrdma_dev_list, entry) {
@@ -239,16 +141,14 @@ static int ocrdma_inet6addr_event(struct notifier_block *notifier,
 
 	if (!found)
 		return NOTIFY_DONE;
-	if (!rdma_link_local_addr((struct in6_addr *)&ifa->addr))
-		return NOTIFY_DONE;
 
 	mutex_lock(&dev->dev_lock);
 	switch (event) {
 	case NETDEV_UP:
-		updated = ocrdma_add_sgid(dev, netdev->dev_addr, is_vlan, vid);
+		updated = ocrdma_add_sgid(dev, gid);
 		break;
 	case NETDEV_DOWN:
-		updated = ocrdma_del_sgid(dev, netdev->dev_addr, is_vlan, vid);
+		updated = ocrdma_del_sgid(dev, gid);
 		break;
 	default:
 		break;
@@ -262,6 +162,32 @@ static int ocrdma_inet6addr_event(struct notifier_block *notifier,
 	}
 	mutex_unlock(&dev->dev_lock);
 	return NOTIFY_OK;
+}
+
+static int ocrdma_inetaddr_event(struct notifier_block *notifier,
+				  unsigned long event, void *ptr)
+{
+	struct in_ifaddr *ifa = ptr;
+	union ib_gid gid;
+	struct net_device *netdev = ifa->ifa_dev->dev;
+
+	ipv6_addr_set_v4mapped(ifa->ifa_address, (struct in6_addr *)&gid);
+	return ocrdma_addr_event(event, netdev, &gid);
+}
+
+static struct notifier_block ocrdma_inetaddr_notifier = {
+	.notifier_call = ocrdma_inetaddr_event
+};
+
+#if IS_ENABLED(CONFIG_IPV6)
+
+static int ocrdma_inet6addr_event(struct notifier_block *notifier,
+				  unsigned long event, void *ptr)
+{
+	struct inet6_ifaddr *ifa = (struct inet6_ifaddr *)ptr;
+	union  ib_gid *gid = (union ib_gid *)&ifa->addr;
+	struct net_device *netdev = ifa->idev->dev;
+	return ocrdma_addr_event(event, netdev, gid);
 }
 
 static struct notifier_block ocrdma_inet6addr_notifier = {
@@ -313,7 +239,7 @@ static int ocrdma_register_device(struct ocrdma_dev *dev)
 
 	dev->ibdev.node_type = RDMA_NODE_IB_CA;
 	dev->ibdev.phys_port_cnt = 1;
-	dev->ibdev.num_comp_vectors = 1;
+	dev->ibdev.num_comp_vectors = dev->eq_cnt;
 
 	/* mandatory verbs. */
 	dev->ibdev.query_device = ocrdma_query_device;
@@ -403,6 +329,8 @@ static int ocrdma_alloc_resources(struct ocrdma_dev *dev)
 	if (dev->stag_arr == NULL)
 		goto alloc_err;
 
+	ocrdma_alloc_pd_pool(dev);
+
 	spin_lock_init(&dev->av_tbl.lock);
 	spin_lock_init(&dev->flush_q_lock);
 	return 0;
@@ -444,7 +372,6 @@ static ssize_t show_hca_type(struct device *device,
 	return scnprintf(buf, PAGE_SIZE, "%s\n", &dev->model_number[0]);
 }
 
-
 static DEVICE_ATTR(hw_rev, S_IRUGO, show_rev, NULL);
 static DEVICE_ATTR(fw_ver, S_IRUGO, show_fw_ver, NULL);
 static DEVICE_ATTR(hca_type, S_IRUGO, show_hca_type, NULL);
@@ -463,6 +390,72 @@ static void ocrdma_remove_sysfiles(struct ocrdma_dev *dev)
 		device_remove_file(&dev->ibdev.dev, ocrdma_attributes[i]);
 }
 
+static void ocrdma_add_default_sgid(struct ocrdma_dev *dev)
+{
+	/* GID Index 0 - Invariant manufacturer-assigned EUI-64 */
+	union ib_gid *sgid = &dev->sgid_tbl[0];
+
+	sgid->global.subnet_prefix = cpu_to_be64(0xfe80000000000000LL);
+	ocrdma_get_guid(dev, &sgid->raw[8]);
+}
+
+static void ocrdma_init_ipv4_gids(struct ocrdma_dev *dev,
+				  struct net_device *net)
+{
+	struct in_device *in_dev;
+	union ib_gid gid;
+	in_dev = in_dev_get(net);
+	if (in_dev) {
+		for_ifa(in_dev) {
+			ipv6_addr_set_v4mapped(ifa->ifa_address,
+					       (struct in6_addr *)&gid);
+			ocrdma_add_sgid(dev, &gid);
+		}
+		endfor_ifa(in_dev);
+		in_dev_put(in_dev);
+	}
+}
+
+static void ocrdma_init_ipv6_gids(struct ocrdma_dev *dev,
+				  struct net_device *net)
+{
+#if IS_ENABLED(CONFIG_IPV6)
+	struct inet6_dev *in6_dev;
+	union ib_gid  *pgid;
+	struct inet6_ifaddr *ifp;
+	in6_dev = in6_dev_get(net);
+	if (in6_dev) {
+		read_lock_bh(&in6_dev->lock);
+#ifndef HAVE_INETADDR_IF_NEXT
+		list_for_each_entry(ifp, &in6_dev->addr_list, if_list) {
+#else
+		for(ifp=in6_dev->addr_list; ifp; ifp=ifp->if_next) {
+#endif
+			pgid = (union ib_gid *)&ifp->addr;
+			ocrdma_add_sgid(dev, pgid);
+		}
+		read_unlock_bh(&in6_dev->lock);
+		in6_dev_put(in6_dev);
+	}
+#endif
+}
+
+static void ocrdma_init_gid_table(struct ocrdma_dev *dev)
+{
+	struct  net_device *net_dev;
+
+	for_each_netdev(&init_net, net_dev) {
+		struct net_device *real_dev = rdma_vlan_dev_real_dev(net_dev) ?
+				rdma_vlan_dev_real_dev(net_dev) : net_dev;
+
+		if (real_dev == dev->nic_info.netdev) {
+			ocrdma_add_default_sgid(dev);
+			ocrdma_init_ipv4_gids(dev, net_dev);
+			ocrdma_init_ipv6_gids(dev, net_dev);
+		}
+	}
+}
+
 static struct ocrdma_dev *ocrdma_add(struct be_dev_info *dev_info)
 {
 	int status = 0, i;
@@ -478,10 +471,10 @@ static struct ocrdma_dev *ocrdma_add(struct be_dev_info *dev_info)
 		goto idr_err;
 
 	memcpy(&dev->nic_info, dev_info, sizeof(*dev_info));
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 9, 0))
-	dev->id = ocrdma_get_instance();
-#else
+#ifdef HAVE_IDR_NEW_INTERFACE
 	dev->id = idr_alloc(&ocrdma_dev_id, NULL, 0, 0, GFP_KERNEL);
+#else
+	idr_get_new(&ocrdma_dev_id, NULL,&dev->id );
 #endif
 	if (dev->id < 0)
 		goto idr_err;
@@ -494,11 +487,8 @@ static struct ocrdma_dev *ocrdma_add(struct be_dev_info *dev_info)
 	if (status)
 		goto alloc_err;
 
-	status = ocrdma_build_sgid_tbl(dev);
-	if (status)
-		goto alloc_err;
-
 	ocrdma_init_service_level(dev);
+	ocrdma_init_gid_table(dev);
 	status = ocrdma_register_device(dev);
 	if (status)
 		goto alloc_err;
@@ -511,6 +501,9 @@ static struct ocrdma_dev *ocrdma_add(struct be_dev_info *dev_info)
 	spin_unlock(&ocrdma_devlist_lock);
 	/* Init stats */
 	ocrdma_add_port_stats(dev);
+	/* Interrupt Moderation */
+	INIT_DELAYED_WORK(&dev->eqd_work, ocrdma_eqd_set_task);
+	schedule_delayed_work(&dev->eqd_work, msecs_to_jiffies(1000));
 
 	pr_info("%s %s: %s \"%s\" port %d\n",
 		dev_name(&dev->nic_info.pdev->dev), hca_name(dev),
@@ -548,15 +541,19 @@ static void ocrdma_remove(struct ocrdma_dev *dev)
 	/* first unregister with stack to stop all the active traffic
 	 * of the registered clients.
 	 */
+	cancel_delayed_work_sync(&dev->eqd_work);
 	ocrdma_remove_sysfiles(dev);
-	ocrdma_rem_port_stats(dev);
 	ib_unregister_device(&dev->ibdev);
+
+	ocrdma_rem_port_stats(dev);
 
 	spin_lock(&ocrdma_devlist_lock);
 	list_del_rcu(&dev->entry);
 	spin_unlock(&ocrdma_devlist_lock);
+
 	ocrdma_free_resources(dev);
 	ocrdma_cleanup_hw(dev);
+
 	call_rcu(&dev->rcu, ocrdma_remove_free);
 }
 
@@ -645,22 +642,39 @@ static void ocrdma_unregister_inet6addr_notifier(void)
 #endif
 }
 
+static void ocrdma_unregister_inetaddr_notifier(void)
+{
+	unregister_inetaddr_notifier(&ocrdma_inetaddr_notifier);
+}
+
 static int __init ocrdma_init_module(void)
 {
 	int status;
 
 	ocrdma_init_debugfs();
 
+	status = register_inetaddr_notifier(&ocrdma_inetaddr_notifier);
+	if (status)
+		return status;
+
 #if IS_ENABLED(CONFIG_IPV6)
 	status = register_inet6addr_notifier(&ocrdma_inet6addr_notifier);
 	if (status)
-		return status;
+		goto err_notifier6;
 #endif
 
 	status = be_roce_register_driver(&ocrdma_drv);
 	if (status)
-		ocrdma_unregister_inet6addr_notifier();
+		goto err_be_reg;
 
+	return 0;
+
+err_be_reg:
+#if IS_ENABLED(CONFIG_IPV6)
+	ocrdma_unregister_inet6addr_notifier();
+err_notifier6:
+#endif
+	ocrdma_unregister_inetaddr_notifier();
 	return status;
 }
 
@@ -668,6 +682,7 @@ static void __exit ocrdma_exit_module(void)
 {
 	be_roce_unregister_driver(&ocrdma_drv);
 	ocrdma_unregister_inet6addr_notifier();
+	ocrdma_unregister_inetaddr_notifier();
 	ocrdma_rem_debugfs();
 }
 

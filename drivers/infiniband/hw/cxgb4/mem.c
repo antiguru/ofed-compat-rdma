@@ -35,6 +35,7 @@
 #include <rdma/ib_umem.h>
 #include <linux/atomic.h>
 #include <linux/ratelimit.h>
+#include <linux/printk.h>
 
 #include "iw_cxgb4.h"
 
@@ -50,6 +51,13 @@ MODULE_PARM_DESC(use_dsgl, "Use DSGL for PBL/FastReg (default=0)");
 static int inline_threshold = C4IW_INLINE_THRESHOLD;
 module_param(inline_threshold, int, 0644);
 MODULE_PARM_DESC(inline_threshold, "inline vs dsgl threshold (default=128)");
+
+static int mr_exceeds_hw_limits(struct c4iw_dev *dev, u64 length)
+{
+	return (is_t4(dev->rdev.lldi.adapter_type) ||
+		is_t5(dev->rdev.lldi.adapter_type)) &&
+		length >= 8*1024*1024*1024ULL;
+}
 
 static int _c4iw_write_mem_dma_aligned(struct c4iw_rdev *rdev, u32 addr,
 				       u32 len, dma_addr_t data, int wait)
@@ -77,7 +85,7 @@ static int _c4iw_write_mem_dma_aligned(struct c4iw_rdev *rdev, u32 addr,
 	INIT_ULPTX_WR(req, wr_len, 0, 0);
 	req->wr.wr_hi = cpu_to_be32(FW_WR_OP(FW_ULPTX_WR) |
 			(wait ? FW_WR_COMPL(1) : 0));
-	req->wr.wr_lo = wait ? (__force __be64)&wr_wait : 0;
+	req->wr.wr_lo = wait ? (__force __be64)(unsigned long) &wr_wait : 0L;
 	req->wr.wr_mid = cpu_to_be32(FW_WR_LEN16(DIV_ROUND_UP(wr_len, 16)));
 	req->cmd = cpu_to_be32(ULPTX_CMD(ULP_TX_MEM_WRITE));
 	req->cmd |= cpu_to_be32(V_T5_ULP_MEMIO_ORDER(1));
@@ -174,7 +182,7 @@ static int _c4iw_write_mem_inline(struct c4iw_rdev *rdev, u32 addr, u32 len,
 	return ret;
 }
 
-int _c4iw_write_mem_dma(struct c4iw_rdev *rdev, u32 addr, u32 len, void *data)
+static int _c4iw_write_mem_dma(struct c4iw_rdev *rdev, u32 addr, u32 len, void *data)
 {
 	u32 remain = len;
 	u32 dmalen;
@@ -370,9 +378,11 @@ static int register_mem(struct c4iw_dev *rhp, struct c4iw_pd *php,
 	int ret;
 
 	ret = write_tpt_entry(&rhp->rdev, 0, &stag, 1, mhp->attr.pdid,
-			      FW_RI_STAG_NSMR, mhp->attr.perms,
+			      FW_RI_STAG_NSMR, mhp->attr.len ?
+			      mhp->attr.perms : 0,
 			      mhp->attr.mw_bind_enable, mhp->attr.zbva,
-			      mhp->attr.va_fbo, mhp->attr.len, shift - 12,
+			      mhp->attr.va_fbo, mhp->attr.len ?
+			      mhp->attr.len : -1, shift - 12,
 			      mhp->attr.pbl_size, mhp->attr.pbl_addr);
 	if (ret)
 		return ret;
@@ -537,6 +547,11 @@ int c4iw_reregister_phys_mem(struct ib_mr *mr, int mr_rereg_mask,
 			return ret;
 	}
 
+	if (mr_exceeds_hw_limits(rhp, total_size)) {
+		kfree(page_list);
+		return -EINVAL;
+	}
+
 	ret = reregister_mem(rhp, php, &mh, shift, npages);
 	kfree(page_list);
 	if (ret)
@@ -596,6 +611,12 @@ struct ib_mr *c4iw_register_phys_mem(struct ib_pd *pd,
 					&page_list);
 	if (ret)
 		goto err;
+
+	if (mr_exceeds_hw_limits(rhp, total_size)) {
+		kfree(page_list);
+		ret = -EINVAL;
+		goto err;
+	}
 
 	ret = alloc_pbl(mhp, npages);
 	if (ret) {
@@ -683,9 +704,9 @@ struct ib_mr *c4iw_reg_user_mr(struct ib_pd *pd, u64 start, u64 length,
 {
 	__be64 *pages;
 	int shift, n, len;
-	int i, j, k;
+	int i, k, entry;
 	int err = 0;
-	struct ib_umem_chunk *chunk;
+	struct scatterlist *sg;
 	struct c4iw_dev *rhp;
 	struct c4iw_pd *php;
 	struct c4iw_mr *mhp;
@@ -700,6 +721,10 @@ struct ib_mr *c4iw_reg_user_mr(struct ib_pd *pd, u64 start, u64 length,
 
 	php = to_c4iw_pd(pd);
 	rhp = php->rhp;
+
+	if (mr_exceeds_hw_limits(rhp, length))
+		return ERR_PTR(-EINVAL);
+
 	mhp = kzalloc(sizeof(*mhp), GFP_KERNEL);
 	if (!mhp)
 		return ERR_PTR(-ENOMEM);
@@ -715,10 +740,7 @@ struct ib_mr *c4iw_reg_user_mr(struct ib_pd *pd, u64 start, u64 length,
 
 	shift = ffs(mhp->umem->page_size) - 1;
 
-	n = 0;
-	list_for_each_entry(chunk, &mhp->umem->chunk_list, list)
-		n += chunk->nents;
-
+	n = mhp->umem->nmap;
 	err = alloc_pbl(mhp, n);
 	if (err)
 		goto err;
@@ -731,24 +753,22 @@ struct ib_mr *c4iw_reg_user_mr(struct ib_pd *pd, u64 start, u64 length,
 
 	i = n = 0;
 
-	list_for_each_entry(chunk, &mhp->umem->chunk_list, list)
-		for (j = 0; j < chunk->nmap; ++j) {
-			len = sg_dma_len(&chunk->page_list[j]) >> shift;
-			for (k = 0; k < len; ++k) {
-				pages[i++] = cpu_to_be64(sg_dma_address(
-					&chunk->page_list[j]) +
-					mhp->umem->page_size * k);
-				if (i == PAGE_SIZE / sizeof *pages) {
-					err = write_pbl(&mhp->rhp->rdev,
-					      pages,
-					      mhp->attr.pbl_addr + (n << 3), i);
-					if (err)
-						goto pbl_done;
-					n += i;
-					i = 0;
-				}
+	for_each_sg(mhp->umem->sg_head.sgl, sg, mhp->umem->nmap, entry) {
+		len = sg_dma_len(sg) >> shift;
+		for (k = 0; k < len; ++k) {
+			pages[i++] = cpu_to_be64(sg_dma_address(sg) +
+				mhp->umem->page_size * k);
+			if (i == PAGE_SIZE / sizeof *pages) {
+				err = write_pbl(&mhp->rhp->rdev,
+				      pages,
+				      mhp->attr.pbl_addr + (n << 3), i);
+				if (err)
+					goto pbl_done;
+				n += i;
+				i = 0;
 			}
 		}
+	}
 
 	if (i)
 		err = write_pbl(&mhp->rhp->rdev, pages,
