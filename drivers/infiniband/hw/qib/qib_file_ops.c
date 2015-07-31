@@ -39,11 +39,16 @@
 #include <linux/vmalloc.h>
 #include <linux/highmem.h>
 #include <linux/io.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0)
 #include <linux/aio.h>
+#else
+#include <linux/uio.h>
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0) */
 #include <linux/jiffies.h>
 #include <asm/pgtable.h>
 #include <linux/delay.h>
 #include <linux/export.h>
+#include <linux/moduleparam.h>
 
 #include "qib.h"
 #include "qib_common.h"
@@ -971,7 +976,11 @@ static int mmap_kvaddr(struct vm_area_struct *vma, u64 pgaddr,
 
 	vma->vm_pgoff = (unsigned long) addr >> PAGE_SHIFT;
 	vma->vm_ops = &qib_file_vm_ops;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0)
 	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
+#else
+	vma->vm_flags |= VM_RESERVED | VM_DONTEXPAND;
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0) */
 	ret = 1;
 
 bail:
@@ -1578,7 +1587,7 @@ static int do_qib_user_sdma_queue_create(struct file *fp)
 	struct qib_ctxtdata *rcd = fd->rcd;
 	struct qib_devdata *dd = rcd->dd;
 
-	if (dd->flags & QIB_HAS_SEND_DMA)
+	if (dd->flags & QIB_HAS_SEND_DMA) {
 
 		fd->pq = qib_user_sdma_queue_create(&dd->pcidev->dev,
 						    dd->unit,
@@ -1586,6 +1595,7 @@ static int do_qib_user_sdma_queue_create(struct file *fp)
 						    fd->subctxt);
 		if (!fd->pq)
 			return -ENOMEM;
+	}
 
 	return 0;
 }
