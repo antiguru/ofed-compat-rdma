@@ -89,7 +89,7 @@
 
 %{!?_name: %define _name compat-rdma}
 %{!?_version: %define _version 3.12}
-%{!?_release: %define _release rc2.1.gb03e066}
+%{!?_release: %define _release rc3.1.gb03e066}
 
 Name: %{_name}
 Version: %{_version}
