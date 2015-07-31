@@ -11,6 +11,13 @@
 #define USE_NEW_VLAN_MODEL
 #endif
 
+#if defined(USE_NEW_VLAN_MODEL) || LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
+/* vlan_gro_frags() can be safely called when vlan_group is NULL
+ *  * for kernels >= 3.0 or when kernels uses USE_NEW_VLAN_MODEL.
+ */
+#define NULL_VLAN_GRP_SAFE
+#endif
+
 static inline struct sk_buff *__vlan_put_tag_fixed(struct sk_buff *skb,
 						__be16 vlan_proto,
 						ushort vlan_tag)

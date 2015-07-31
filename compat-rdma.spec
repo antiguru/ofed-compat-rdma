@@ -89,7 +89,7 @@
 
 %{!?_name: %define _name compat-rdma}
 %{!?_version: %define _version 3.12}
-%{!?_release: %define _release 1.g8336567}
+%{!?_release: %define _release rc2.1.gb03e066}
 
 Name: %{_name}
 Version: %{_version}
@@ -172,6 +172,8 @@ cd -
 
 %if %{build_kernel_ib}
 make install_kernel MODULES_DIR=%{LIB_MOD_DIR} INSTALL_MOD_PATH=$RPM_BUILD_ROOT INSTALL_MOD_DIR=updates KERNELRELEASE=%{KVERSION}
+cp -a compat.config $RPM_BUILD_ROOT/%{_prefix}/src/%{_name}
+cp -a include/linux/compat_autoconf.h $RPM_BUILD_ROOT/%{_prefix}/src/%{_name}/include/linux
 %endif
 
 %if %{build_kernel_ib_devel}
@@ -624,4 +626,3 @@ fi
 * Thu Feb 16 2012 Vladimir Sokolovsky <vlad@mellanox.com>
 - Created spec file for compat-rdma
 r compat-rdma
-dma

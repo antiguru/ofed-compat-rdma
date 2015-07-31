@@ -431,8 +431,15 @@ xprt_rdma_set_port(struct rpc_xprt *xprt, u16 port)
 }
 
 static void
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,1,0))
+xprt_rdma_connect(struct rpc_task *task)
+#else
 xprt_rdma_connect(struct rpc_xprt *xprt, struct rpc_task *task)
+#endif
 {
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,1,0))
+	struct rpc_xprt *xprt = task->tk_xprt;
+#endif
 	struct rpcrdma_xprt *r_xprt = rpcx_to_rdmax(xprt);
 
 	if (r_xprt->rx_ep.rep_connected != 0) {
@@ -452,13 +459,13 @@ xprt_rdma_connect(struct rpc_xprt *xprt, struct rpc_task *task)
 }
 
 static int
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,1,0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,1,0)) || defined (CONFIG_COMPAT_XPRT_RESERVE_XPRT_CONG_2PARAMS)
 xprt_rdma_reserve_xprt(struct rpc_xprt *xprt, struct rpc_task *task)
 #else
 xprt_rdma_reserve_xprt(struct rpc_task *task)
 #endif
 {
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,1,0))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,1,0)) && !defined (CONFIG_COMPAT_XPRT_RESERVE_XPRT_CONG_2PARAMS)
 	struct rpc_xprt *xprt = task->tk_xprt;
 #endif
 	struct rpcrdma_xprt *r_xprt = rpcx_to_rdmax(xprt);

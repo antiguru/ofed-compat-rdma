@@ -31,7 +31,9 @@
  *
  */
 
+#ifdef CONFIG_NET_RX_BUSY_POLL
 #include <net/busy_poll.h>
+#endif
 #include <linux/mlx4/cq.h>
 #include <linux/slab.h>
 #include <linux/mlx4/qp.h>

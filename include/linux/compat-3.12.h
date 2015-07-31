@@ -11,6 +11,7 @@
 
 #define MODULE_ALIAS_FS(NAME) MODULE_ALIAS("fs-" NAME)
 
+#define file_inode LINUX_BACKPORT(file_inode)
 static inline struct inode *file_inode(struct file *f)
 {
 	return f->f_dentry->d_inode;

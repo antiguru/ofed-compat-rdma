@@ -38,7 +38,9 @@
 #include <linux/slab.h>
 #include <linux/hash.h>
 #include <net/ip.h>
+#ifdef CONFIG_NET_RX_BUSY_POLL
 #include <net/busy_poll.h>
+#endif
 
 #include <linux/mlx4/driver.h>
 #include <linux/mlx4/device.h>

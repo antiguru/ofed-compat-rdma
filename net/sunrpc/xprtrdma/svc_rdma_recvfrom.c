@@ -90,6 +90,9 @@ static void rdma_build_arg_xdr(struct svc_rqst *rqstp,
 		sge_no++;
 	}
 	rqstp->rq_respages = &rqstp->rq_pages[sge_no];
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,8,0))
+	rqstp->rq_next_page = rqstp->rq_respages + 1;
+#endif
 
 	/* We should never run out of SGE because the limit is defined to
 	 * support the max allowed RPC data length
@@ -169,6 +172,9 @@ static int map_read_chunks(struct svcxprt_rdma *xprt,
 		 */
 		head->arg.pages[page_no] = rqstp->rq_arg.pages[page_no];
 		rqstp->rq_respages = &rqstp->rq_arg.pages[page_no+1];
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,8,0))
+		rqstp->rq_next_page = rqstp->rq_respages + 1;
+#endif
 
 		byte_count -= sge_bytes;
 		ch_bytes -= sge_bytes;
@@ -276,6 +282,9 @@ static int fast_reg_read_chunks(struct svcxprt_rdma *xprt,
 
 	/* rq_respages points one past arg pages */
 	rqstp->rq_respages = &rqstp->rq_arg.pages[page_no];
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,8,0))
+	rqstp->rq_next_page = rqstp->rq_respages + 1;
+#endif
 
 	/* Create the reply and chunk maps */
 	offset = 0;
@@ -527,9 +536,6 @@ next_sge:
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0))
         while (rqstp->rq_resused)
                 rqstp->rq_respages[--rqstp->rq_resused] = NULL;
-#else
-	while (rqstp->rq_next_page != rqstp->rq_respages)
-		*(--rqstp->rq_next_page) = NULL;
 #endif
 
 	return err;
@@ -558,7 +564,7 @@ static int rdma_read_complete(struct svc_rqst *rqstp,
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0))
         rqstp->rq_resused = 0;
 #else
-	rqstp->rq_next_page = &rqstp->rq_arg.pages[page_no];
+	rqstp->rq_next_page = rqstp->rq_respages + 1;
 #endif
 
 	/* Rebuild rq_arg head and tail. */

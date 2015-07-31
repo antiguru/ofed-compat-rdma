@@ -43,12 +43,6 @@ static u8 t5fw_data[] = {
 #  include "./t5fw.txt"
 };
 
-static inline int t4_local_firmware_free(const struct firmware *firmware)
-{
-	kfree(firmware);
-	return 0;
-}
-
 static inline int t4_local_firmware_load(const struct firmware **firmware)
 {
 	struct firmware *fw;

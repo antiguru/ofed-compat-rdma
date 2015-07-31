@@ -38,9 +38,9 @@
 
 #include "iw_cxgb4.h"
 
-int use_dsgl = 1;
+int use_dsgl = 0;
 module_param(use_dsgl, int, 0644);
-MODULE_PARM_DESC(use_dsgl, "Use DSGL for PBL/FastReg (default=1)");
+MODULE_PARM_DESC(use_dsgl, "Use DSGL for PBL/FastReg (default=0)");
 
 #define T4_ULPTX_MIN_IO 32
 #define C4IW_MAX_INLINE_SIZE 96
@@ -260,8 +260,12 @@ static int write_tpt_entry(struct c4iw_rdev *rdev, u32 reset_tpt_entry,
 
 	if ((!reset_tpt_entry) && (*stag == T4_STAG_UNSET)) {
 		stag_idx = c4iw_get_resource(&rdev->resource.tpt_table);
-		if (!stag_idx)
+		if (!stag_idx) {
+			mutex_lock(&rdev->stats.lock);
+			rdev->stats.stag.fail++;
+			mutex_unlock(&rdev->stats.lock);
 			return -ENOMEM;
+		}
 		mutex_lock(&rdev->stats.lock);
 		rdev->stats.stag.cur += 32;
 		if (rdev->stats.stag.cur > rdev->stats.stag.max)
@@ -904,7 +908,11 @@ struct ib_fast_reg_page_list *c4iw_alloc_fastreg_pbl(struct ib_device *device,
 	dma_unmap_addr_set(c4pl, mapping, dma_addr);
 	c4pl->dma_addr = dma_addr;
 	c4pl->dev = dev;
-	c4pl->ibpl.max_page_list_len = pll_len;
+	c4pl->pll_len = pll_len;
+
+	PDBG("%s c4pl %p pll_len %u page_list %p dma_addr %pad\n",
+	     __func__, c4pl, c4pl->pll_len, c4pl->ibpl.page_list,
+	     &c4pl->dma_addr);
 
 	return &c4pl->ibpl;
 }
@@ -913,8 +921,12 @@ void c4iw_free_fastreg_pbl(struct ib_fast_reg_page_list *ibpl)
 {
 	struct c4iw_fr_page_list *c4pl = to_c4iw_fr_page_list(ibpl);
 
+	PDBG("%s c4pl %p pll_len %u page_list %p dma_addr %pad\n",
+	     __func__, c4pl, c4pl->pll_len, c4pl->ibpl.page_list,
+	     &c4pl->dma_addr);
+
 	dma_free_coherent(&c4pl->dev->rdev.lldi.pdev->dev,
-			  c4pl->ibpl.max_page_list_len,
+			  c4pl->pll_len,
 			  c4pl->ibpl.page_list, dma_unmap_addr(c4pl, mapping));
 	kfree(c4pl);
 }

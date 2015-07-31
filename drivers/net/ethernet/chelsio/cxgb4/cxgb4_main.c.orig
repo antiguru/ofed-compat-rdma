@@ -69,6 +69,7 @@
 #include "t4_msg.h"
 #include "t4fw_api.h"
 #include "l2t.h"
+#include "t4_firmware.h"
 
 #ifdef DRV_VERSION
 #undef DRV_VERSION
@@ -5260,12 +5261,21 @@ static struct fw_info *find_fw_info(int chip)
 	return NULL;
 }
 
+static int t4_request_firmware(const struct firmware **firmware,
+			       enum chip_type chip)
+{
+	if (is_t4(chip))
+		return t4_local_firmware_load(firmware);
+	else
+		return t5_local_firmware_load(firmware);
+}
+
 /*
  * Phase 0 of initialization: contact FW, obtain config, perform basic init.
  */
 static int adap_init0(struct adapter *adap)
 {
-	int ret;
+	int ret, rc;
 	u32 v, port_vec;
 	enum dev_state state;
 	u32 params[7], val[7];
@@ -5302,7 +5312,7 @@ static int adap_init0(struct adapter *adap)
 	if ((adap->flags & MASTER_PF) && state != DEV_STATE_INIT) {
 		struct fw_info *fw_info;
 		struct fw_hdr *card_fw;
-		const struct firmware *fw;
+		const struct firmware *fw, *bfw;
 		const u8 *fw_data = NULL;
 		unsigned int fw_size = 0;
 
@@ -5325,13 +5335,34 @@ static int adap_init0(struct adapter *adap)
 		/* Get FW from from /lib/firmware/ */
 		ret = request_firmware(&fw, fw_info->fw_mod_name,
 				       adap->pdev_dev);
-		if (ret < 0) {
+		rc = t4_request_firmware(&bfw, adap->params.chip);
+		if (ret < 0 && rc < 0) {
 			dev_err(adap->pdev_dev,
 				"unable to load firmware image %s, error %d\n",
 				fw_info->fw_mod_name, ret);
-		} else {
+		} else if (ret < 0) {
+			fw_data = bfw->data;
+			fw_size = bfw->size;
+		} else if (rc < 0) {
 			fw_data = fw->data;
 			fw_size = fw->size;
+		} else {
+			const struct fw_hdr *fs_fw;
+			const struct fw_hdr *bnd_fw;
+			int f, b;
+
+			fs_fw = (const void *)fw->data;
+			bnd_fw = (const void *)bfw->data;
+			f = be32_to_cpu(fs_fw->fw_ver);
+			b = be32_to_cpu(bnd_fw->fw_ver);
+
+			if (f > b) {
+				fw_data = fw->data;
+				fw_size = fw->size;
+			} else {
+				fw_data = bfw->data;
+				fw_size = bfw->size;
+			}
 		}
 
 		/* upgrade FW logic */
@@ -5341,6 +5372,8 @@ static int adap_init0(struct adapter *adap)
 		/* Cleaning up */
 		if (fw != NULL)
 			release_firmware(fw);
+		if (bfw != NULL)
+			kfree(bfw);
 		t4_free_mem(card_fw);
 
 		if (ret < 0)
