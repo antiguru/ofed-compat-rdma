@@ -8,16 +8,16 @@
 [01;32m     11601[00m - backport from compat module
 [01;32m     13267[00m - total backport code
 [31m    4.1070[00m - % of code consists of backport work
-[01;33m      2605[00m - Code changes brought in from linux-next
-[01;33m      2275[00m - Code additions brought in from linux-next
-[01;33m       330[00m - Code deletions brought in from linux-next
-[31m    0.8064[00m - % of code being cherry picked from linux-next
-[01;33m     31296[00m - Code changes posted but not yet merged
-[01;33m     30801[00m - Code additions posted but not yet merged
-[01;33m       495[00m - Code deletions posted but not yet merged
-[31m    9.6881[00m - % of code not yet merged
+[01;33m      2629[00m - Code changes brought in from linux-next
+[01;33m      2284[00m - Code additions brought in from linux-next
+[01;33m       345[00m - Code deletions brought in from linux-next
+[31m    0.8138[00m - % of code being cherry picked from linux-next
+[01;33m     31369[00m - Code changes posted but not yet merged
+[01;33m     30843[00m - Code additions posted but not yet merged
+[01;33m       526[00m - Code deletions posted but not yet merged
+[31m    9.7107[00m - % of code not yet merged
 
 Base tree: [01;32munknown[00m
 Base tree version: [35mv3.5[00m
 compat.git: [36mcompat-2012-07-02-13-gde310fa[00m
-compat-rdma release: [01;33md8f006a-np[00m
+compat-rdma release: [01;33ma5bbb76-np[00m

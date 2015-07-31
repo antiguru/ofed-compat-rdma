@@ -87,7 +87,7 @@
 
 %{!?_name: %define _name compat-rdma}
 %{!?_version: %define _version 3.5}
-%{!?_release: %define _release OFED.3.5.1}
+%{!?_release: %define _release 2.1.ga5bbb76}
 
 Name: %{_name}
 Version: %{_version}
@@ -608,4 +608,4 @@ fi
 * Thu Feb 16 2012 Vladimir Sokolovsky <vlad@mellanox.com>
 - Created spec file for compat-rdma
 r compat-rdma
-rdma
+ma
