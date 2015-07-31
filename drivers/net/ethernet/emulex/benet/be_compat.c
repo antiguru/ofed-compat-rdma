@@ -70,3 +70,25 @@ int pci_sriov_get_totalvfs(struct pci_dev *pdev)
 
 #endif
 #endif /* CONFIG_PCI_IOV */
+
+#if LINUX_VERSION_CODE > KERNEL_VERSION(3, 0, 0)
+unsigned long u64_stats_fetch_begin_compat(struct u64_stats_sync *sync)
+{
+	return u64_stats_fetch_begin_bh(sync);
+}
+bool u64_stats_fetch_retry_compat(const struct u64_stats_sync *syncp,
+				  unsigned int start)
+{
+	return u64_stats_fetch_retry_bh(syncp, start);
+}
+#else
+unsigned long u64_stats_fetch_begin_compat(struct u64_stats_sync *sync)
+{
+	return 0;
+}
+bool u64_stats_fetch_retry_compat(const struct u64_stats_sync *syncp,
+				  unsigned int start)
+{
+	return false;
+}
+#endif

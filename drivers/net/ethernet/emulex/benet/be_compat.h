@@ -101,4 +101,8 @@ int pci_sriov_get_totalvfs(struct pci_dev *pdev);
 #define DUPLEX_UNKNOWN 0xFF
 #endif
 
+unsigned long u64_stats_fetch_begin_compat(struct u64_stats_sync *sync);
+bool u64_stats_fetch_retry_compat(const struct u64_stats_sync *syncp,
+				  unsigned int start);
+
 #endif                          /* BE_COMPAT_H */

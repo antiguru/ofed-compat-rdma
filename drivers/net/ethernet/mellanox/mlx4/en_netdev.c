@@ -73,6 +73,7 @@ int mlx4_en_setup_tc(struct net_device *dev, u8 up)
 #endif
 
 #ifdef CONFIG_NET_RX_BUSY_POLL
+#ifndef CONFIG_COMPAT_IS_NETDEV_EXTENDED
 /* must be called with local_bh_disable()d */
 static int mlx4_en_low_latency_recv(struct napi_struct *napi)
 {
@@ -98,6 +99,7 @@ static int mlx4_en_low_latency_recv(struct napi_struct *napi)
 
 	return done;
 }
+#endif
 #endif	/* CONFIG_NET_RX_BUSY_POLL */
 
 #ifdef CONFIG_RFS_ACCEL
@@ -2248,7 +2250,9 @@ static const struct net_device_ops mlx4_netdev_ops = {
 #endif
 #endif
 #ifdef CONFIG_NET_RX_BUSY_POLL
+#ifndef CONFIG_COMPAT_IS_NETDEV_EXTENDED
 	.ndo_busy_poll		= mlx4_en_low_latency_recv,
+#endif
 #endif
 };
 

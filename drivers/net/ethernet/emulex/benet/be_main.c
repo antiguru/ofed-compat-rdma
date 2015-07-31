@@ -1393,9 +1393,9 @@ static void be_eqd_update(struct be_adapter *adapter, struct be_eq_obj *eqo)
 		return;
 
 	do {
-		start = u64_stats_fetch_begin_bh(&stats->sync);
+		start = u64_stats_fetch_begin_compat(&stats->sync);
 		pkts = stats->rx_pkts;
-	} while (u64_stats_fetch_retry_bh(&stats->sync, start));
+	} while (u64_stats_fetch_retry_compat(&stats->sync, start));
 
 	stats->rx_pps = (unsigned long)(pkts - stats->rx_pkts_prev) / (delta / HZ);
 	stats->rx_pkts_prev = pkts;

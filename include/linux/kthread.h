@@ -15,7 +15,7 @@
 
 #include_next <linux/kthread.h>
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35))
+#ifndef CONFIG_COMPAT_IS_KTHREAD
 
 struct kthread_work;
 typedef void (*kthread_work_func_t)(struct kthread_work *work);
@@ -106,7 +106,7 @@ void flush_kthread_worker(struct kthread_worker *worker);
 #define kthread_create_on_node(threadfn, data, node, namefmt, arg...) \
 	kthread_create(threadfn, data, namefmt, ##arg)
 
-#endif /* LINUX_VERSION_CODE < 2.6.38 */
+#endif /* CONFIG_COMPAT_IS_KTHREAD */
 
 #endif /* _LINUX_KTHREAD_H */
 

@@ -8,28 +8,8 @@
  * Compatibility file for Linux wireless for kernels 2.6.34.
  */
 
-#include <linux/mmc/sdio_func.h>
 #include <linux/pci.h>
 #include <linux/export.h>
-
-#include "compat-2.6.34.h"
-
-static mmc_pm_flag_t backport_mmc_pm_flags;
-
-void backport_init_mmc_pm_flags(void)
-{
-	backport_mmc_pm_flags = 0;
-}
-
-mmc_pm_flag_t sdio_get_host_pm_caps(struct sdio_func *func)
-{
-	return backport_mmc_pm_flags;
-}
-
-int sdio_set_host_pm_flags(struct sdio_func *func, mmc_pm_flag_t flags)
-{
-	return -EINVAL;
-}
 
 int pci_vpd_find_tag(const u8 *buf, unsigned int off, unsigned int len, u8 rdt)
 {

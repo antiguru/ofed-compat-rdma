@@ -222,10 +222,12 @@ static inline bool skb_has_frag_list(const struct sk_buff *skb)
  *
  * Adding missing enums for ethtool_flags in 2.6.32 kernel.
  */
+#ifndef CONFIG_COMPAT_IS_ETH_FLAG_TXVLAN
 enum additional_ethtool_flags {
     ETH_FLAG_TXVLAN         = (1 << 7),     /* TX VLAN offload enabled */
     ETH_FLAG_RXVLAN         = (1 << 8),     /* RX VLAN offload enabled */
 };
+#endif
 
 extern void             unregister_netdevice_queue(struct net_device *dev,
 						   struct list_head *head);

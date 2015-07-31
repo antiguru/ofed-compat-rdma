@@ -1,5 +1,4 @@
 #include <linux/module.h>
-#include "compat-2.6.34.h"
 
 MODULE_AUTHOR("Luis R. Rodriguez");
 MODULE_DESCRIPTION("Kernel backport module");
@@ -58,7 +57,6 @@ static int __init backport_init(void)
 		pr_warn("backport_system_workqueue_create() failed\n");
 		return err;
 	}
-	backport_init_mmc_pm_flags();
 
 	printk(KERN_INFO
 	       COMPAT_PROJECT " backport release: "

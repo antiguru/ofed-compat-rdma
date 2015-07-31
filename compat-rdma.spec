@@ -96,7 +96,7 @@
 
 %{!?_name: %define _name compat-rdma}
 %{!?_version: %define _version 3.12}
-%{!?_release: %define _release 1.1.gca07cd5}
+%{!?_release: %define _release 1.1.g9594cac}
 
 Name: %{_name}
 Version: %{_version}

@@ -26,9 +26,11 @@ compat-$(CONFIG_COMPAT_KERNEL_2_6_32) += compat-2.6.32.o
 
 compat-$(CONFIG_COMPAT_KERNEL_2_6_33) += compat-2.6.33.o
 compat-$(CONFIG_COMPAT_KERNEL_2_6_34) += compat-2.6.34.o
-compat-$(CONFIG_COMPAT_KERNEL_2_6_35) += \
-	compat-2.6.35.o \
-	kthread.o
+compat-$(CONFIG_COMPAT_KERNEL_2_6_35) += compat-2.6.35.o
+
+ifeq ($(CONFIG_COMPAT_IS_KTHREAD),)
+compat-$(CONFIG_COMPAT_KERNEL_2_6_35) += kthread.o
+endif
 
 compat-$(CONFIG_COMPAT_KERNEL_2_6_36) += compat-2.6.36.o
 
