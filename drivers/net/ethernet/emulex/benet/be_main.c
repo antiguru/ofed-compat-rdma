@@ -2903,6 +2903,7 @@ static int be_msix_enable(struct be_adapter *adapter)
 	 }
 
 done:
+#endif
 	if (be_roce_supported(adapter) && num_vec > MIN_MSIX_VECTORS) {
 		adapter->num_msix_roce_vec = num_vec / 2;
 		dev_info(dev, "enabled %d MSI-x vector(s) for RoCE\n",
@@ -2914,7 +2915,6 @@ done:
 	dev_info(dev, "enabled %d MSI-x vector(s) for NIC\n",
 		 adapter->num_msix_vec);
 	return 0;
-#endif
 
 fail:
 	dev_warn(dev, "MSIx enable failed\n");
@@ -5148,6 +5148,23 @@ static int be_probe(struct pci_dev *pdev, const struct pci_device_id *pdev_id)
 		status = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
 		if (status) {
 			dev_err(&pdev->dev, "Could not set PCI DMA Mask\n");
+			goto free_netdev;
+		}
+	}
+#else
+	status = pci_set_dma_mask(pdev, DMA_BIT_MASK(64));
+	if (status) {
+		status = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
+		if (status) {
+			dev_err(&pdev->dev, "Could not set PCI DMA Mask\n");
+			goto free_netdev;
+		}
+	}
+	status = pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(64));
+	if (status) {
+		status = pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(32));
+		if (status) {
+			dev_err(&pdev->dev, "Could not set PCI DMA consistent Mask\n");
 			goto free_netdev;
 		}
 	}

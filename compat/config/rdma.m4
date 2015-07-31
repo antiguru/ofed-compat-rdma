@@ -559,7 +559,7 @@ AC_DEFUN([LINUX_CONFIG_COMPAT],
 		AC_MSG_RESULT(no)
 	])
 
-	AC_MSG_CHECKING([if skbuff.h has skb_set_hash])
+	AC_MSG_CHECKING([if netdevice.h has skb_set_hash])
 	LB_LINUX_TRY_COMPILE([
 		#include <linux/netdevice.h>
 	],[
@@ -570,6 +570,23 @@ AC_DEFUN([LINUX_CONFIG_COMPAT],
 		AC_MSG_RESULT(yes)
 		AC_DEFINE(HAVE_SKB_SET_HASH, 1,
 			  [skb_set_hash is defined])
+	],[
+		AC_MSG_RESULT(no)
+	])
+
+	AC_MSG_CHECKING([if netdevice.h has alloc_netdev with 4 params])
+	LB_LINUX_TRY_COMPILE([
+		#include <linux/netdevice.h>
+	],[
+		struct net_device *dev;
+
+		dev = alloc_netdev(0, NULL, 0, NULL);
+
+		return 0;
+	],[
+		AC_MSG_RESULT(yes)
+		AC_DEFINE(HAVE_ALLOC_NETDEV_4P, 1,
+			  [alloc_netdev has 4 parameters])
 	],[
 		AC_MSG_RESULT(no)
 	])
@@ -1294,14 +1311,15 @@ AC_DEFUN([LINUX_CONFIG_COMPAT],
 	LB_LINUX_TRY_COMPILE([
 		#include <linux/netdevice.h>
 
+	],[
 		int vlan_rx_add_vid(struct net_device *dev,__be16 proto, u16 vid)
 		{
 			return 0;
 		}
-	],[
 		struct net_device_ops netdev_ops;
 
 		netdev_ops.ndo_vlan_rx_add_vid = vlan_rx_add_vid;
+		netdev_ops.ndo_vlan_rx_add_vid (NULL, 1, 1) ;
 
 		return 0;
 	],[
@@ -1854,6 +1872,21 @@ AC_DEFUN([LINUX_CONFIG_COMPAT],
 		AC_MSG_RESULT(no)
 	])
 
+	AC_MSG_CHECKING([if vxlan.h has vxlan_gso_check])
+	LB_LINUX_TRY_COMPILE([
+		#include <net/vxlan.h>
+	],[
+		vxlan_gso_check(NULL);
+
+		return 0;
+	],[
+		AC_MSG_RESULT(yes)
+		AC_DEFINE(HAVE_VXLAN_GSO_CHECK, 1,
+			  [vxlan_gso_check is defined])
+	],[
+		AC_MSG_RESULT(no)
+	])
+
 	AC_MSG_CHECKING([if dst.h has dst_get_neighbour])
 	LB_LINUX_TRY_COMPILE([
 		#include <net/dst.h>
@@ -2059,6 +2092,21 @@ AC_DEFUN([LINUX_CONFIG_COMPAT],
 		AC_MSG_RESULT(yes)
 		AC_DEFINE(HAVE_REINIT_COMPLETION, 1,
 			  [reinit_completion is defined])
+	],[
+		AC_MSG_RESULT(no)
+	])
+
+	AC_MSG_CHECKING([if dma-mapping.h has dma_set_mask_and_coherent])
+	LB_LINUX_TRY_COMPILE([
+		#include <linux/dma-mapping.h>
+	],[
+		dma_set_mask_and_coherent(NULL, 0);
+
+		return 0;
+	],[
+		AC_MSG_RESULT(yes)
+		AC_DEFINE(HAVE_DMA_SET_MASK_AND_COHERENT, 1,
+			  [dma_set_mask_and_coherent is defined])
 	],[
 		AC_MSG_RESULT(no)
 	])

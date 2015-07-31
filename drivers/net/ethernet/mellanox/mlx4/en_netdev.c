@@ -2459,10 +2459,12 @@ static void mlx4_en_del_vxlan_port(struct  net_device *dev,
 	queue_work(priv->mdev->workqueue, &priv->vxlan_del_task);
 }
 
+#ifdef HAVE_VXLAN_GSO_CHECK
 static bool mlx4_en_gso_check(struct sk_buff *skb, struct net_device *dev)
 {
 	return vxlan_gso_check(skb);
 }
+#endif
 #endif
 
 static const struct net_device_ops mlx4_netdev_ops = {
@@ -2504,7 +2506,9 @@ static const struct net_device_ops mlx4_netdev_ops = {
 #ifdef CONFIG_MLX4_EN_VXLAN
 	.ndo_add_vxlan_port	= mlx4_en_add_vxlan_port,
 	.ndo_del_vxlan_port	= mlx4_en_del_vxlan_port,
+#ifdef HAVE_VXLAN_GSO_CHECK
 	.ndo_gso_check		= mlx4_en_gso_check,
+#endif
 #endif
 };
 
@@ -2557,7 +2561,9 @@ static const struct net_device_ops mlx4_netdev_ops_master = {
 #ifdef CONFIG_MLX4_EN_VXLAN
 	.ndo_add_vxlan_port	= mlx4_en_add_vxlan_port,
 	.ndo_del_vxlan_port	= mlx4_en_del_vxlan_port,
+#ifdef HAVE_VXLAN_GSO_CHECK
 	.ndo_gso_check		= mlx4_en_gso_check,
+#endif
 #endif
 };
 
@@ -2775,7 +2781,6 @@ int mlx4_en_init_netdev(struct mlx4_en_dev *mdev, int port,
 	dev->features = dev->features | NETIF_F_HIGHDMA |
 			NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_HW_VLAN_CTAG_RX |
 			NETIF_F_HW_VLAN_CTAG_FILTER;
-	dev->features |= NETIF_F_LOOPBACK;
 
 	if (mdev->dev->caps.steering_mode ==
 	    MLX4_STEERING_MODE_DEVICE_MANAGED)

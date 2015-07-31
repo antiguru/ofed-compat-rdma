@@ -51,7 +51,9 @@
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/seq_file.h>
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(3,8,0))
 #include <linux/sunrpc/addr.h>
+#endif
 
 #include "xprt_rdma.h"
 
@@ -278,7 +280,9 @@ xprt_setup_rdma(struct xprt_create *args)
 	}
 
 	xprt = xprt_alloc(args->net, sizeof(struct rpcrdma_xprt),
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,1,0) || CONFIG_COMPAT_XPRT_ALLOC_4PARAMS)
 			xprt_rdma_slot_table_entries,
+#endif
 			xprt_rdma_slot_table_entries);
 	if (xprt == NULL) {
 		dprintk("RPC:       %s: couldn't allocate rpcrdma_xprt\n",
@@ -428,8 +432,15 @@ xprt_rdma_set_port(struct rpc_xprt *xprt, u16 port)
 }
 
 static void
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,1,0))
+xprt_rdma_connect(struct rpc_task *task)
+#else
 xprt_rdma_connect(struct rpc_xprt *xprt, struct rpc_task *task)
+#endif
 {
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,1,0))
+	struct rpc_xprt *xprt = task->tk_xprt;
+#endif
 	struct rpcrdma_xprt *r_xprt = rpcx_to_rdmax(xprt);
 
 	if (r_xprt->rx_ep.rep_connected != 0) {
@@ -678,7 +689,9 @@ static void xprt_rdma_print_stats(struct rpc_xprt *xprt, struct seq_file *seq)
 static struct rpc_xprt_ops xprt_rdma_procs = {
 	.reserve_xprt		= xprt_reserve_xprt_cong,
 	.release_xprt		= xprt_release_xprt_cong, /* sunrpc/xprt.c */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0) || CONFIG_COMPAT_RPC_XPRT_OPS_HAS_ALLOC_SLOT)
 	.alloc_slot		= xprt_alloc_slot,
+#endif
 	.release_request	= xprt_release_rqst_cong,       /* ditto */
 	.set_retrans_timeout	= xprt_set_retrans_timeout_def, /* ditto */
 	.rpcbind		= rpcb_getport_async,	/* sunrpc/rpcb_clnt.c */

@@ -93,7 +93,9 @@ static void rdma_build_arg_xdr(struct svc_rqst *rqstp,
 		sge_no++;
 	}
 	rqstp->rq_respages = &rqstp->rq_pages[sge_no];
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,8,0))
 	rqstp->rq_next_page = rqstp->rq_respages + 1;
+#endif
 
 	/* We should never run out of SGE because the limit is defined to
 	 * support the max allowed RPC data length
@@ -168,7 +170,9 @@ static int rdma_read_chunk_lcl(struct svcxprt_rdma *xprt,
 		if (!pg_off)
 			head->count++;
 		rqstp->rq_respages = &rqstp->rq_arg.pages[pg_no+1];
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,8,0))
 		rqstp->rq_next_page = rqstp->rq_respages + 1;
+#endif
 		ctxt->sge[pno].addr =
 			ib_dma_map_page(xprt->sc_cm_id->device,
 					head->arg.pages[pg_no], pg_off,
@@ -273,7 +277,9 @@ static int rdma_read_chunk_frmr(struct svcxprt_rdma *xprt,
 		if (!pg_off)
 			head->count++;
 		rqstp->rq_respages = &rqstp->rq_arg.pages[pg_no+1];
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,8,0))
 		rqstp->rq_next_page = rqstp->rq_respages + 1;
+#endif
 		frmr->page_list->page_list[pno] =
 			ib_dma_map_page(xprt->sc_cm_id->device,
 					head->arg.pages[pg_no], 0,
@@ -483,7 +489,11 @@ static int rdma_read_complete(struct svc_rqst *rqstp,
 
 	/* rq_respages starts after the last arg page */
 	rqstp->rq_respages = &rqstp->rq_arg.pages[page_no];
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,8,0))
 	rqstp->rq_next_page = rqstp->rq_respages + 1;
+#else
+	rqstp->rq_resused = 0;
+#endif
 
 	/* Rebuild rq_arg head and tail. */
 	rqstp->rq_arg.head[0] = head->arg.head[0];

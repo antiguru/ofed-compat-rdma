@@ -357,9 +357,17 @@ rpcrdma_inline_pullup(struct rpc_rqst *rqst, int pad)
 			curlen = copy_len;
 		dprintk("RPC:       %s: page %d destp 0x%p len %d curlen %d\n",
 			__func__, i, destp, copy_len, curlen);
+#if defined(CONFIG_COMPAT_KMAP_2PARAMS)
+		srcp = kmap_atomic(ppages[i], KM_SKB_SUNRPC_DATA);
+#else
 		srcp = kmap_atomic(ppages[i]);
+#endif
 		memcpy(destp, srcp+page_base, curlen);
+#if defined(CONFIG_COMPAT_KMAP_2PARAMS)
+		kunmap_atomic(srcp, KM_SKB_SUNRPC_DATA);
+#else
 		kunmap_atomic(srcp);
+#endif
 		rqst->rq_svec[0].iov_len += curlen;
 		destp += curlen;
 		copy_len -= curlen;
@@ -645,10 +653,18 @@ rpcrdma_inline_fixup(struct rpc_rqst *rqst, char *srcp, int copy_len, int pad)
 			dprintk("RPC:       %s: page %d"
 				" srcp 0x%p len %d curlen %d\n",
 				__func__, i, srcp, copy_len, curlen);
+#if defined(CONFIG_COMPAT_KMAP_2PARAMS)
+			destp = kmap_atomic(ppages[i], KM_SKB_SUNRPC_DATA);
+#else
 			destp = kmap_atomic(ppages[i]);
+#endif
 			memcpy(destp + page_base, srcp, curlen);
 			flush_dcache_page(ppages[i]);
+#if defined(CONFIG_COMPAT_KMAP_2PARAMS)
+			kunmap_atomic(destp, KM_SKB_SUNRPC_DATA);
+#else
 			kunmap_atomic(destp);
+#endif
 			srcp += curlen;
 			copy_len -= curlen;
 			if (copy_len == 0)
