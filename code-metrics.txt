@@ -20,4 +20,4 @@
 Base tree: [01;32munknown[00m
 Base tree version: [35mf9e9918[00m
 compat.git: [36mcompat-2014-01-30-7-g26dbe26[00m
-compat-rdma release: [01;33mgdfd2451-np[00m
+compat-rdma release: [01;33mg561c555-np[00m
