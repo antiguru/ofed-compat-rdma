@@ -11,6 +11,7 @@
 #include <linux/idr.h>
 #include <net/dst.h>
 
+#ifndef CONFIG_COMPAT_SLES_11_3
 static inline struct neighbour *dst_get_neighbour(struct dst_entry *dst)
 {
 	return dst->neighbour;
@@ -25,6 +26,7 @@ static inline struct neighbour *dst_get_neighbour_raw(struct dst_entry *dst)
 {
 	return rcu_dereference_raw(dst->neighbour);
 }
+#endif /* CONFIG_COMPAT_SLES_11_3 */
 
 /* Backports 56f8a75c */
 static inline bool ip_is_fragment(const struct iphdr *iph)
@@ -108,10 +110,6 @@ static inline void security_sk_clone(const struct sock *sk, struct sock *newsk)
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)) && !defined(ATOMIC64_INIT) && !defined(CONFIG_X86) && !((LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33)) && defined(CONFIG_ARM) && !defined(CONFIG_GENERIC_ATOMIC64))
 #include <asm-generic/atomic64.h>
 #endif
-
-int ida_simple_get(struct ida *ida, unsigned int start, unsigned int end,
-		   gfp_t gfp_mask);
-void ida_simple_remove(struct ida *ida, unsigned int id);
 
 #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(3,1,0)) */
 

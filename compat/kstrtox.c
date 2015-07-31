@@ -26,6 +26,8 @@
 #include <linux/module.h>
 #include <linux/types.h>
 
+#ifndef CONFIG_COMPAT_RHEL_6_4
+
 static inline char _tolower(const char c)
 {
 	return c | 0x20;
@@ -233,4 +235,6 @@ int kstrtos8(const char *s, unsigned int base, s8 *res)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(kstrtos8);
+#endif /* CONFIG_COMPAT_RHEL_6_4 */
+
 #endif /* #ifndef strict_strtol */

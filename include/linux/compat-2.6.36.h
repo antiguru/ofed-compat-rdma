@@ -11,8 +11,10 @@
 #include <linux/pm_qos_params.h>
 #include <linux/smp_lock.h>
 
+#ifndef CONFIG_COMPAT_RHEL_6_4
 #define kparam_block_sysfs_write(a)
 #define kparam_unblock_sysfs_write(a)
+#endif /* CONFIG_COMPAT_RHEL_6_4 */
 
 /* mask va_format as RHEL6 backports this */
 #define va_format compat_va_format
@@ -34,6 +36,7 @@ extern struct urb *compat_usb_get_from_anchor(struct usb_anchor *anchor);
 extern void compat_usb_scuttle_anchored_urbs(struct usb_anchor *anchor);
 #endif
 
+#ifndef CONFIG_COMPAT_RHEL_6_4
 /**
  * pcmcia_read_config_byte() - read a byte from a card configuration register
  *
@@ -60,6 +63,7 @@ static inline int pcmcia_write_config_byte(struct pcmcia_device *p_dev, off_t wh
 	conf_reg_t reg = { 0, CS_WRITE, where, val };
 	return pcmcia_access_configuration_register(p_dev, &reg);
 }
+#endif /* CONFIG_COMPAT_RHEL_6_4 */
 
 struct pm_qos_request_list {
 	u32 qos;
@@ -135,9 +139,11 @@ static inline bool skb_defer_rx_timestamp(struct sk_buff *skb)
 	return false;
 }
 
+#ifndef CONFIG_COMPAT_RHEL_6_4
 static inline void skb_tx_timestamp(struct sk_buff *skb)
 {
 }
+#endif /* CONFIG_COMPAT_RHEL_6_4 */
 
 /*
  * System-wide workqueues which are always present.

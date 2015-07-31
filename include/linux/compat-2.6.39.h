@@ -21,6 +21,8 @@ static inline int netif_is_bond_slave(struct net_device *dev)
 {
 	return dev->flags & IFF_SLAVE && dev->priv_flags & IFF_BONDING;
 }
+
+#ifndef CONFIG_COMPAT_RHEL_6_4
 static inline int irq_set_irq_wake(unsigned int irq, unsigned int on)
 {
 	return set_irq_wake(irq, on);
@@ -41,6 +43,8 @@ static inline int irq_set_irq_type(unsigned int irq, unsigned int type)
 {
 	return set_irq_type(irq, type);
 }
+#endif /* CONFIG_COMPAT_RHEL_6_4 */
+
 static inline int irq_set_msi_desc(unsigned int irq, struct msi_desc *entry)
 {
 	return set_irq_msi(irq, entry);
@@ -102,6 +106,7 @@ static inline struct msi_desc *irq_desc_get_msi_desc(struct irq_desc *desc)
 }
 #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29)) */
 
+#ifndef CONFIG_COMPAT_RHEL_6_4
 /* 
  * kstrto* was included in kernel 2.6.38.4 and causes conflicts with the
  * version included in compat-wireless. We use strict_strtol to check if
@@ -183,6 +188,7 @@ static inline void __clear_bit_le(int nr, void *addr)
 {
 	__clear_bit(nr ^ BITOP_LE_SWIZZLE, addr);
 }
+#endif /* CONFIG_COMPAT_RHEL_6_4 */
 
 #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,39)) */
 

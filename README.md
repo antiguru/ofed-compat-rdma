@@ -1,1 +1,0 @@
-# ofed-compat-rdma

@@ -200,6 +200,7 @@ static u8 mlx4_en_dcbnl_setdcbx(struct net_device *dev, u8 mode)
 	return 0;
 }
 
+#if (!defined(CONFIG_COMPAT_RHEL_6_4) && !defined(CONFIG_COMPAT_SLES_11_3))
 #define MLX4_RATELIMIT_UNITS_IN_KB 100000 /* rate-limit HW unit in Kbps */
 static int mlx4_en_dcbnl_ieee_getmaxrate(struct net_device *dev,
 				   struct ieee_maxrate *maxrate)
@@ -241,12 +242,15 @@ static int mlx4_en_dcbnl_ieee_setmaxrate(struct net_device *dev,
 
 	return 0;
 }
+#endif /* (!defined(CONFIG_COMPAT_RHEL_6_4) && !defined(CONFIG_COMPAT_SLES_11_3)) */
 
 const struct dcbnl_rtnl_ops mlx4_en_dcbnl_ops = {
 	.ieee_getets	= mlx4_en_dcbnl_ieee_getets,
 	.ieee_setets	= mlx4_en_dcbnl_ieee_setets,
+#if (!defined(CONFIG_COMPAT_RHEL_6_4) && !defined(CONFIG_COMPAT_SLES_11_3))
 	.ieee_getmaxrate = mlx4_en_dcbnl_ieee_getmaxrate,
 	.ieee_setmaxrate = mlx4_en_dcbnl_ieee_setmaxrate,
+#endif /* (!defined(CONFIG_COMPAT_RHEL_6_4) && !defined(CONFIG_COMPAT_SLES_11_3)) */
 	.ieee_getpfc	= mlx4_en_dcbnl_ieee_getpfc,
 	.ieee_setpfc	= mlx4_en_dcbnl_ieee_setpfc,
 

@@ -7,6 +7,7 @@
  *
  * Compatibility file for Linux wireless for kernels 3.4.
  */
+#ifndef  CONFIG_COMPAT_RHEL_6_4
 #include <linux/pkt_sched.h>
 #define ECN_OR_COST(class)	TC_PRIO_##class
 
@@ -29,3 +30,4 @@ const __u8 ip_tos2prio[16] = {
 	ECN_OR_COST(INTERACTIVE_BULK)
 };
 EXPORT_SYMBOL(ip_tos2prio);
+#endif  /* CONFIG_COMPAT_RHEL_6_4 */

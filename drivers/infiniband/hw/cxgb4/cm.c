@@ -1601,6 +1601,8 @@ static int c4iw_reconnect(struct c4iw_ep *ep)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0)
 	neigh = dst_neigh_lookup(ep->dst,
 			&ep->com.cm_id->remote_addr.sin_addr.s_addr);
+#elif defined(CONFIG_COMPAT_SLES_11_3)
+	neigh = ep->dst->_neighbour;
 #else
 	neigh = ep->dst->neighbour;
 #endif
@@ -3106,6 +3108,8 @@ static int rx_pkt(struct c4iw_dev *dev, struct sk_buff *skb)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
 	neigh = dst_neigh_lookup_skb(dst, skb);
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0)
+	neigh = dst->_neighbour;
+#elif defined(CONFIG_COMPAT_SLES_11_3)
 	neigh = dst->_neighbour;
 #else
 	neigh = dst->neighbour;

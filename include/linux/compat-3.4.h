@@ -8,7 +8,9 @@
 #include <linux/etherdevice.h>
 #include <linux/skbuff.h>
 
+#ifndef CONFIG_COMPAT_SLES_11_3
 extern int simple_open(struct inode *inode, struct file *file);
+#endif
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28))
 #define skb_add_rx_frag(skb, i, page, off, size, truesize) \
@@ -49,16 +51,20 @@ static inline void eth_hw_addr_random(struct net_device *dev)
 #define NET_ADDR_RANDOM                1       /* address is generated randomly */
 #define NET_ADDR_STOLEN                2       /* address is stolen from other device */
 
+#ifndef CONFIG_COMPAT_RHEL_6_4
 static inline void eth_hw_addr_random(struct net_device *dev)
 {
 	random_ether_addr(dev->dev_addr);
 }
+#endif /* CONFIG_COMPAT_RHEL_6_4 */
 
 #else /* 2.6.36 and on */
+#ifndef CONFIG_COMPAT_SLES_11_3
 static inline void eth_hw_addr_random(struct net_device *dev)
 {
 	dev_hw_addr_random(dev, dev->dev_addr);
 }
+#endif /* CONFIG_COMPAT_SLES_11_3 */
 #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)) */
 
 #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)) */

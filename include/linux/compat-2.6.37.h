@@ -31,6 +31,7 @@ static inline int proto_ports_offset(int proto)
 
 #define VLAN_N_VID              4096
 
+#ifndef CONFIG_COMPAT_RHEL_6_4
 /*
  *     netif_set_real_num_rx_queues - set actual number of RX queues used
  *     @dev: Network device
@@ -47,6 +48,7 @@ static inline int netif_set_real_num_rx_queues(struct net_device *dev,
 {
     return 0;
 }
+#endif /* CONFIG_COMPAT_RHEL_6_4 */
 
 extern struct kobj_ns_type_operations net_ns_type_operations;
 
@@ -68,7 +70,9 @@ static inline void skb_checksum_none_assert(struct sk_buff *skb)
 #endif
 }
 
+#ifndef CONFIG_COMPAT_RHEL_6_4
 #define pcmcia_enable_device(link)	pcmcia_request_configuration(link, &link->conf)
+#endif /* CONFIG_COMPAT_RHEL_6_4 */
 
 #include <net/genetlink.h>
 
@@ -156,8 +160,10 @@ extern void compat_led_brightness_set(struct led_classdev *led_cdev,
 
 extern void *vzalloc(unsigned long size);
 
+#ifndef CONFIG_COMPAT_RHEL_6_4
 #define rtnl_dereference(p)                                     \
         rcu_dereference_protected(p, lockdep_rtnl_is_held())
+#endif /* CONFIG_COMPAT_RHEL_6_4 */
 
 /**
  * RCU_INIT_POINTER() - initialize an RCU protected pointer

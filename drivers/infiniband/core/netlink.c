@@ -30,7 +30,9 @@
  * SOFTWARE.
  */
 
+#ifndef pr_fmt
 #define pr_fmt(fmt) "%s:%s: " fmt, KBUILD_MODNAME, __func__
+#endif
 
 #include <linux/export.h>
 #include <net/netlink.h>
@@ -149,7 +151,12 @@ static int ibnl_rcv_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 			    !client->cb_table[RDMA_NL_GET_OP(op)].dump)
 				return -EINVAL;
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0))
+#ifdef CONFIG_COMPAT_SLES_11_3
+			return netlink_dump_start(nls, skb, nlh,
+						  client->cb_table[op].dump,
+						  NULL, 0);
+#else
+#if ((LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0)) || defined(CONFIG_COMPAT_RHEL_6_4))
 			{
 				struct netlink_dump_control c = {
 					.dump = client->cb_table[op].dump,
@@ -160,7 +167,8 @@ static int ibnl_rcv_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 			return netlink_dump_start(nls, skb, nlh,
 						  client->cb_table[op].dump,
 						  NULL, 0);
-#endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)) */
+#endif /* ((LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0)) || defined(CONFIG_COMPAT_RHEL_6_4)) */
+#endif /* CONFIG_COMPAT_SLES_11_3 */
 		}
 	}
 

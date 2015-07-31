@@ -29,6 +29,7 @@ int compat_hex_to_bin(char ch)
 }
 EXPORT_SYMBOL_GPL(compat_hex_to_bin);
 
+#ifndef CONFIG_COMPAT_RHEL_6_4
 /**
  * noop_llseek - No Operation Performed llseek implementation
  * @file:	file structure to seek on
@@ -45,4 +46,5 @@ loff_t noop_llseek(struct file *file, loff_t offset, int origin)
 	return file->f_pos;
 }
 EXPORT_SYMBOL_GPL(noop_llseek);
+#endif /* CONFIG_COMPAT_RHEL_6_4 */
 

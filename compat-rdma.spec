@@ -87,7 +87,7 @@
 
 %{!?_name: %define _name compat-rdma}
 %{!?_version: %define _version 3.5}
-%{!?_release: %define _release OFED.3.5}
+%{!?_release: %define _release OFED.3.5.1}
 
 Name: %{_name}
 Version: %{_version}
@@ -115,7 +115,7 @@ Requires: kernel
 Requires: pciutils
 Requires: compat-rdma
 Version: %{_version}
-Release: %{krelver}
+Release: %{_release}
 Summary: Infiniband Driver and ULPs kernel modules sources
 Group: System Environment/Libraries
 %description -n compat-rdma-devel
@@ -608,4 +608,4 @@ fi
 * Thu Feb 16 2012 Vladimir Sokolovsky <vlad@mellanox.com>
 - Created spec file for compat-rdma
 r compat-rdma
-t-rdma
+rdma

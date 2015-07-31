@@ -11,6 +11,8 @@
 #include <linux/compat.h>
 #include <linux/autoconf.h>
 
+#ifndef CONFIG_COMPAT_RHEL_6_4
+
 #if defined(CONFIG_PCCARD) || defined(CONFIG_PCCARD_MODULE)
 
 /**
@@ -127,6 +129,8 @@ EXPORT_SYMBOL_GPL(pcmcia_loop_tuple);
 /* Source: drivers/pcmcia/pcmcia_resource.c */
 
 #endif /* CONFIG_PCMCIA */
+
+#endif /* CONFIG_COMPAT_RHEL_6_4 */
 
 #endif /* CONFIG_PCCARD */
 

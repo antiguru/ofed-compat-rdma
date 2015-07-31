@@ -171,7 +171,7 @@ static int ipoib_stop(struct net_device *dev)
 	return 0;
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,3,0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,39))
 static netdev_features_t ipoib_fix_features(struct net_device *dev, netdev_features_t features)
 {
 	struct ipoib_dev_priv *priv = netdev_priv(dev);
@@ -992,7 +992,7 @@ static const struct net_device_ops ipoib_netdev_ops = {
 	.ndo_open		 = ipoib_open,
 	.ndo_stop		 = ipoib_stop,
 	.ndo_change_mtu		 = ipoib_change_mtu,
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,3,0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,39))
 	.ndo_fix_features	 = ipoib_fix_features,
 #endif
 	.ndo_start_xmit	 	 = ipoib_start_xmit,

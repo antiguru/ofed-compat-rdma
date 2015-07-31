@@ -72,12 +72,15 @@ static inline unsigned long ewma_read(const struct ewma *avg)
 }
 
 #define pr_warn pr_warning
+
+#ifndef CONFIG_COMPAT_RHEL_6_4
 #define create_freezable_workqueue create_freezeable_workqueue
 
 static inline int skb_checksum_start_offset(const struct sk_buff *skb)
 {
 	return skb->csum_start - skb_headroom(skb);
 }
+#endif /* CONFIG_COMPAT_RHEL_6_4 */
 
 /* from include/linux/printk.h */ 
 #define pr_emerg_once(fmt, ...)					\
