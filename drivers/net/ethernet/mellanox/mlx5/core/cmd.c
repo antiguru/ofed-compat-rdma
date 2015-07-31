@@ -125,7 +125,10 @@ static u8 alloc_token(struct mlx5_cmd *cmd)
 	u8 token;
 
 	spin_lock(&cmd->token_lock);
-	token = cmd->token++ % 255 + 1;
+	cmd->token++;
+	if (cmd->token == 0)
+		cmd->token++;
+	token = cmd->token;
 	spin_unlock(&cmd->token_lock);
 
 	return token;
@@ -519,10 +522,11 @@ static void cmd_work_handler(struct work_struct *work)
 #endif
 
 	/* ring doorbell after the descriptor is valid */
+	mlx5_core_dbg(dev, "writing 0x%x to command doorbell\n", 1 << ent->idx);
 	wmb();
 	iowrite32be(1 << ent->idx, &dev->iseg->cmd_dbell);
-	mlx5_core_dbg(dev, "write 0x%x to command doorbell\n", 1 << ent->idx);
 	mmiowb();
+	/* if not in polling don't use ent after this point */
 	if (cmd->mode == CMD_MODE_POLLING) {
 		poll_timeout(ent);
 		/* make sure we read the descriptor after ownership is SW */
@@ -1262,7 +1266,8 @@ static int cmd_exec(struct mlx5_core_dev *dev, void *in, int in_size, void *out,
 		goto out_out;
 	}
 
-	err = mlx5_copy_from_msg(out, outb, out_size);
+	if (!callback)
+		err = mlx5_copy_from_msg(out, outb, out_size);
 
 out_out:
 	if (!callback)
@@ -1389,7 +1394,7 @@ int mlx5_cmd_init(struct mlx5_core_dev *dev)
 		goto err_map;
 	}
 
-	if (cmd->log_sz + cmd->log_stride > PAGE_SHIFT) {
+	if (cmd->log_sz + cmd->log_stride > MLX5_ADAPTER_PAGE_SHIFT) {
 		dev_err(&dev->pdev->dev, "command queue size overflow\n");
 		err = -EINVAL;
 		goto err_map;

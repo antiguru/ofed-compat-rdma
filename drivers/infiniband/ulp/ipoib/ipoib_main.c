@@ -241,6 +241,7 @@ int ipoib_set_mode(struct net_device *dev, const char *buf)
                         ipoib_warn(priv, "mtu > %d will cause multicast packet drops.\n",
                                    priv->mcast_mtu);
 #endif
+		dev_set_mtu(dev, ipoib_cm_max_mtu(dev));
 		rtnl_unlock();
 		priv->tx_wr.send_flags &= ~IB_SEND_IP_CSUM;
 

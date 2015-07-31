@@ -5,6 +5,7 @@
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,12,0))
 #include <linux/pci.h>
+#include <linux/pci_hotplug.h>
 
 #ifndef PTR_ERR_OR_ZERO
 #define PTR_ERR_OR_ZERO(p) PTR_RET(p)

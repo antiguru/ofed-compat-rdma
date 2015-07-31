@@ -12,6 +12,7 @@
 #include <linux/netdevice.h>
 #include <linux/errno.h>
 
+#ifndef HAVE_PROTO_PORTS_OFFSET
 static inline int proto_ports_offset(int proto)
 {
 	switch (proto) {
@@ -28,6 +29,7 @@ static inline int proto_ports_offset(int proto)
 		return -EINVAL;
 	}
 }
+#endif
 
 /* supports eipoib flags, priv_flags is short till that version */
 #define CONFIG_COMPAT_IFF_EIPOIB_PIF 0x8000 /*== IFF_OVS_DATAPATH*/
@@ -65,12 +67,13 @@ enum {
  *     code and making this function to always return success.
  */
 /* mask netif_set_real_num_rx_queues as RHEL6.4 backports this */
-#define netif_set_real_num_rx_queues(a, b) compat_netif_set_real_num_rx_queues(a, b)
+#ifndef HAVE_NETIF_SET_REAL_NUM_RX_QUEUES
 static inline int netif_set_real_num_rx_queues(struct net_device *dev,
         unsigned int rxq)
 {
     return 0;
 }
+#endif
 
 #define net_ns_type_operations LINUX_BACKPORT(net_ns_type_operations)
 extern struct kobj_ns_type_operations net_ns_type_operations;

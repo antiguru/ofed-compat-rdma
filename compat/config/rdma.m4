@@ -700,6 +700,7 @@ AC_DEFUN([LINUX_CONFIG_COMPAT],
 	AC_MSG_CHECKING([if pci.h has enum pcie_link_width])
 	LB_LINUX_TRY_COMPILE([
 		#include <linux/pci.h>
+		#include <linux/pci_hotplug.h>
 	],[
 		enum pcie_link_width width = PCIE_LNK_WIDTH_UNKNOWN;
 
@@ -715,6 +716,7 @@ AC_DEFUN([LINUX_CONFIG_COMPAT],
 	AC_MSG_CHECKING([if pci.h has enum pci_bus_speed])
 	LB_LINUX_TRY_COMPILE([
 		#include <linux/pci.h>
+		#include <linux/pci_hotplug.h>
 	],[
 		enum pci_bus_speed speed = PCI_SPEED_UNKNOWN;
 
@@ -1698,20 +1700,34 @@ AC_DEFUN([LINUX_CONFIG_COMPAT],
 	],[
 		AC_MSG_RESULT(no)
 	])
-	AC_MSG_CHECKING([if __vlan_put_tag has 3 parameters])
+
+	AC_MSG_CHECKING([if vlan_insert_tag_set_proto is defined])
 	LB_LINUX_TRY_COMPILE([
 		#include <linux/if_vlan.h>
 	],[
 		struct sk_buff *skb;
-		__vlan_put_tag(skb, 0, 0);
-
+		vlan_insert_tag_set_proto(skb, 0, 0);
 		return 0;
 	],[
 		AC_MSG_RESULT(yes)
-		AC_DEFINE(HAVE_3_PARAMS_FOR_VLAN_PUT_TAG, 1,
-			  [__vlan_put_tag has 3 parameters])
+		AC_DEFINE(HAVE_VLAN_INSERT_TAG_SET_PROTO, 1,
+			  [vlan_insert_tag_set_proto is defined])
 	],[
 		AC_MSG_RESULT(no)
+		AC_MSG_CHECKING([if __vlan_put_tag has 3 parameters])
+		LB_LINUX_TRY_COMPILE([
+			#include <linux/if_vlan.h>
+		],[
+			struct sk_buff *skb;
+			__vlan_put_tag(skb, 0, 0);
+			return 0;
+		],[
+			AC_MSG_RESULT(yes)
+			AC_DEFINE(HAVE_3_PARAMS_FOR_VLAN_PUT_TAG, 1,
+				  [__vlan_put_tag has 3 parameters])
+		],[
+			AC_MSG_RESULT(no)
+		])
 	])
 
 	AC_MSG_CHECKING([if __vlan_hwaccel_put_tag has 3 parameters])
@@ -2107,6 +2123,41 @@ AC_DEFUN([LINUX_CONFIG_COMPAT],
 		AC_MSG_RESULT(yes)
 		AC_DEFINE(HAVE_DMA_SET_MASK_AND_COHERENT, 1,
 			  [dma_set_mask_and_coherent is defined])
+	],[
+		AC_MSG_RESULT(no)
+	])
+
+	AC_MSG_CHECKING([if in.h has proto_ports_offset])
+	LB_LINUX_TRY_COMPILE([
+		#include <linux/in.h>
+	],[
+		int x = proto_ports_offset(IPPROTO_TCP);
+		return 0;
+	],[
+		AC_MSG_RESULT(yes)
+		AC_DEFINE(HAVE_PROTO_PORTS_OFFSET, 1,
+			  [proto_ports_offset is defined])
+	],[
+		AC_MSG_RESULT(no)
+	])
+
+	LB_CHECK_SYMBOL_EXPORT([elfcorehdr_addr],
+		[kernel/crash_dump.c],
+		[AC_DEFINE(HAVE_ELFCOREHDR_ADDR_EXPORTED, 1,
+			[elfcorehdr_addr is exported by the kernel])],
+	[])
+
+	AC_MSG_CHECKING([if netif_set_real_num_rx_queues is defined])
+	LB_LINUX_TRY_COMPILE([
+		#include <linux/netdevice.h>
+	],[
+		int rc = netif_set_real_num_rx_queues(NULL, 0);
+
+		return rc;
+	],[
+		AC_MSG_RESULT(yes)
+		AC_DEFINE(HAVE_NETIF_SET_REAL_NUM_RX_QUEUES, 1,
+			  [netif_set_real_num_rx_queues is defined])
 	],[
 		AC_MSG_RESULT(no)
 	])

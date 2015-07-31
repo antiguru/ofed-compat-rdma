@@ -193,6 +193,7 @@ static inline void __clear_bit_le(int nr, void *addr)
 #endif
 
 #ifndef __ASSEMBLY__
+#ifndef PTR_RET
 #define PTR_RET LINUX_BACKPORT(PTR_RET)
 static inline int __must_check PTR_RET(const void *ptr)
 {
@@ -201,6 +202,7 @@ static inline int __must_check PTR_RET(const void *ptr)
 	else
 		return 0;
 }
+#endif
 #endif
 
 #ifndef IEEE_8021QAZ_TSA_STRICT

@@ -29,6 +29,7 @@ static inline struct neighbour *dst_get_neighbour_raw(struct dst_entry *dst)
 #endif /* HAVE_DST_GET_NEIGHBOUR */
 
 /* Backports 56f8a75c */
+#define ip_is_fragment LINUX_BACKPORT(ip_is_fragment)
 static inline bool ip_is_fragment(const struct iphdr *iph)
 {
 	return (iph->frag_off & htons(IP_MF | IP_OFFSET)) != 0;

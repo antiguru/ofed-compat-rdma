@@ -8,8 +8,12 @@
 #include <linux/netdevice.h>
 #include <linux/skbuff.h>
 
+#ifndef CONFIG_COMPAT_NETIF_HAS_PICK_TX
+
 #define __netdev_pick_tx LINUX_BACKPORT(__netdev_pick_tx)
 u16 __netdev_pick_tx(struct net_device *dev, struct sk_buff *skb);
+
+#endif /* CONFIG_COMPAT_NETIF_HAS_PICK_TX */
 
 #if NR_CPUS < 64
 #define MAX_XPS_CPUS		NR_CPUS

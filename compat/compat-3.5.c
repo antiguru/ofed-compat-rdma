@@ -85,7 +85,7 @@ int dev_mc_add_excl(struct net_device *dev, unsigned char *addr)
 			goto out;
 		}
 	}
-	netif_addr_lock_bh(dev);
+	netif_addr_unlock_bh(dev);
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,35))
 	return dev_mc_add(dev, addr);

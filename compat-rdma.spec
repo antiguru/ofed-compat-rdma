@@ -31,6 +31,8 @@
 %{!?KVERSION: %define KVERSION %(uname -r)}
 %define krelver %(echo -n %{KVERSION} | sed -e 's/-/_/g')
 
+%global WITH_SYSTEMD %(if ( test -d "/lib/systemd/system" > /dev/null || test -d "%{_prefix}/lib/systemd/system" > /dev/null); then echo -n '1'; else echo -n '0'; fi)
+
 # Select packages to build
 # Kernel module packages to be included into compat-rdma
 
@@ -78,7 +80,7 @@
 
 %{!?_name: %define _name compat-rdma}
 %{!?_version: %define _version 3.18}
-%{!?_release: %define _release rc2.1.gbd88b3f}
+%{!?_release: %define _release rc3.1.ge72998b}
 
 Name: %{_name}
 Version: %{_version}
@@ -128,8 +130,9 @@ cp -a $RPM_BUILD_DIR/%{_name}-%{_version} $RPM_BUILD_DIR/src/
 # Copy InfniBand include files after applying backport patches (if required)
 mkdir -p $RPM_BUILD_DIR/src/%{_name}
 cp -a $RPM_BUILD_DIR/%{_name}-%{_version}/include/ $RPM_BUILD_DIR/src/%{_name}
-cp -a $RPM_BUILD_DIR/%{_name}-%{_version}/configure.mk.kernel $RPM_BUILD_DIR/src/%{_name}
-cp -a $RPM_BUILD_DIR/%{_name}-%{_version}/config.mk  $RPM_BUILD_DIR/src/%{_name}
+cp -a $RPM_BUILD_DIR/%{_name}-%{_version}/config*  $RPM_BUILD_DIR/src/%{_name}
+cp -a $RPM_BUILD_DIR/%{_name}-%{_version}/compat*  $RPM_BUILD_DIR/src/%{_name}
+cp -a $RPM_BUILD_DIR/%{_name}-%{_version}/ofed_scripts*  $RPM_BUILD_DIR/src/%{_name}
 sed -i -e "s@\${CWD}@%{_prefix}/src/%{_name}@g" $RPM_BUILD_DIR/src/%{_name}/config.mk
 
 %if %{build_ibp_server} || %{build_ibscif} || %{build_qib}
@@ -188,7 +191,7 @@ EOFINFO
 
 chmod +x ${INFO} > /dev/null 2>&1
 
-%if 0%{?suse_version} == 1315
+%if "%{WITH_SYSTEMD}" == "1"
 install -d $RPM_BUILD_ROOT/%{_prefix}/lib/systemd/system
 install -m 0644 $RPM_BUILD_DIR/%{_name}-%{_version}/ofed_scripts/openibd.service $RPM_BUILD_ROOT/%{_prefix}/lib/systemd/system
 %endif
@@ -229,7 +232,7 @@ install -m 0755 $RPM_BUILD_DIR/%{_name}-%{_version}/ofed_scripts/ibscif-opt $RPM
 %endif
 
 %if %{build_qib}
-install -m 0644 $RPM_BUILD_DIR/%{_name}-%{_version}/ofed_scripts/truescale.cmds $RPM_BUILD_ROOT/%{RDMA_CONF_DIR}
+install -m 0755 $RPM_BUILD_DIR/%{_name}-%{_version}/ofed_scripts/truescale.cmds $RPM_BUILD_ROOT/%{RDMA_CONF_DIR}
 %endif
 
 %if %{build_ipoib}
@@ -274,12 +277,13 @@ perl -i -ne 'if (m@^#!/bin/bash@) {
                      print;
                  }' /etc/init.d/openibd
 
-        if ! ( /sbin/chkconfig --del openibd > /dev/null 2>&1 ); then
-                true
-        fi
-        if ! ( /sbin/chkconfig --add openibd > /dev/null 2>&1 ); then
-                true
-        fi
+        /sbin/chkconfig openibd off >/dev/null 2>&1 || true
+        /usr/bin/systemctl disable openibd >/dev/null  2>&1 || true
+        /sbin/chkconfig --del openibd >/dev/null 2>&1 || true
+
+        /sbin/chkconfig --add openibd >/dev/null 2>&1 || true
+        /sbin/chkconfig openibd on >/dev/null 2>&1 || true
+        /usr/bin/systemctl enable openibd >/dev/null  2>&1 || true
 
         if [ -x /etc/init.d/ofed-mic ]; then
             if ! ( /sbin/chkconfig --del ofed-mic > /dev/null 2>&1 ); then
@@ -302,9 +306,9 @@ if [ -f /etc/SuSE-release ]; then
 ### BEGIN INIT INFO
 # Provides:       openibd
 # Required-Start: $local_fs
-# Required-Stop: $local_fs
+# Required-Stop: opensmd $openiscsi
 # Default-Start:  2 3 5
-# Default-Stop: 0 1 4 6
+# Default-Stop: 0 1 2 6
 # Description:    Activates/Deactivates InfiniBand Driver to \
 #                 start at boot time.
 ### END INIT INFO
@@ -313,9 +317,13 @@ if [ -f /etc/SuSE-release ]; then
                      print;
                  }" /etc/init.d/openibd
 
-        if ! ( /sbin/insserv openibd > /dev/null 2>&1 ); then
-                true
-        fi
+        /sbin/chkconfig openibd off >/dev/null  2>&1 || true
+        /usr/bin/systemctl disable openibd >/dev/null  2>&1 || true
+        /sbin/insserv -r openibd >/dev/null 2>&1 || true
+
+        /sbin/insserv openibd >/dev/null 2>&1 || true
+        /sbin/chkconfig openibd on >/dev/null 2>&1 || true
+        /usr/bin/systemctl enable openibd >/dev/null  2>&1 || true
 fi
 
 if [ -f /etc/debian_version ]; then
@@ -329,9 +337,9 @@ if [ -f /etc/debian_version ]; then
 ### BEGIN INIT INFO
 # Provides:       openibd
 # Required-Start: $local_fs
-# Required-Stop: $local_fs
-# Default-Start:  2 3 4 5
-# Default-Stop: 0 1 6
+# Required-Stop: opensmd $openiscsi
+# Default-Start:  2 3 5
+# Default-Stop: 0 1 2 6
 # Description:    Activates/Deactivates InfiniBand Driver to \
 #                 start at boot time.
 ### END INIT INFO
@@ -345,7 +353,7 @@ if [ -f /etc/debian_version ]; then
         fi
 fi
 
-%if 0%{?suse_version} == 1315
+%if "%{WITH_SYSTEMD}" == "1"
 /usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
 %endif
 
@@ -357,9 +365,9 @@ fi # 1 : closed
 %preun
 if [ $1 = 0 ]; then  # 1 : Erase, not upgrade
           if [[ -f /etc/redhat-release || -f /etc/rocks-release ]]; then        
-                if ! ( /sbin/chkconfig --del openibd  > /dev/null 2>&1 ); then
-                        true
-                fi
+                /sbin/chkconfig openibd off >/dev/null 2>&1 || true
+                /usr/bin/systemctl disable openibd >/dev/null  2>&1 || true
+                /sbin/chkconfig --del openibd  >/dev/null 2>&1 || true
 		if [ -x /etc/init.d/ofed-mic ]; then
                     if ! ( /sbin/chkconfig --del ofed-mic  > /dev/null 2>&1 ); then
                         true
@@ -367,9 +375,9 @@ if [ $1 = 0 ]; then  # 1 : Erase, not upgrade
 		fi
           fi
           if [ -f /etc/SuSE-release ]; then
-                if ! ( /sbin/insserv -r openibd > /dev/null 2>&1 ); then
-                        true
-                fi
+                /sbin/chkconfig openibd off >/dev/null 2>&1 || true
+                /usr/bin/systemctl disable openibd >/dev/null  2>&1 || true
+                /sbin/insserv -r openibd >/dev/null 2>&1 || true
 		if [ -x /etc/init.d/ofed-mic ]; then
                     if ! ( /sbin/insserv -r ofed-mic > /dev/null 2>&1 ); then
                         true
@@ -388,7 +396,7 @@ if [ $1 = 0 ]; then  # 1 : Erase, not upgrade
         # Clean /etc/modprobe.d/ofed.conf   
         # Remove previous configuration if exist
         /sbin/depmod %{KVERSION}
-%if 0%{?suse_version} == 1315
+%if "%{WITH_SYSTEMD}" == "1"
 /usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
 %endif
 fi
@@ -404,7 +412,7 @@ fi
 %endif
 %{RDMA_CONF_DIR}/info
 /etc/init.d/openibd
-%if 0%{?suse_version} == 1315
+%if "%{WITH_SYSTEMD}" == "1"
 %{_prefix}/lib/systemd/system/openibd.service
 %endif
 /sbin/sysctl_perf_tuning

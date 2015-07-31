@@ -677,7 +677,7 @@ static struct rtnl_link_stats64 *be_get_stats64(struct net_device *netdev,
 			pkts = rx_stats(rxo)->rx_pkts;
 			bytes = rx_stats(rxo)->rx_bytes;
 #ifdef HAVE_U64_STATS_FETCH_BEGIN_IRQ
-		ret = u64_stats_fetch_retry_irq(&rx_stats->sync, start)
+		ret = u64_stats_fetch_retry_irq(&rx_stats->sync, start);
 		} while (ret);
 #endif
 		stats->rx_packets += pkts;
@@ -4721,11 +4721,13 @@ static void be_netdev_init(struct net_device *netdev)
 	struct be_adapter *adapter = netdev_priv(netdev);
 
 	if (skyhawk_chip(adapter)) {
+#ifdef CONFIG_BE2NET_VXLAN
 #ifdef HAVE_NETDEV_HW_ENC_FEATURES
 		netdev->hw_enc_features |= NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
 					   NETIF_F_TSO | NETIF_F_TSO6 |
 					   NETIF_F_GSO_UDP_TUNNEL;
 		netdev->hw_features |= NETIF_F_GSO_UDP_TUNNEL;
+#endif
 #endif
 	}
 	netdev->hw_features |= NETIF_F_SG | NETIF_F_TSO | NETIF_F_TSO6 |

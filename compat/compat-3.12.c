@@ -2,6 +2,7 @@
 #include <linux/fs.h>
 #include <linux/export.h>
 #include <linux/pci.h>
+#include <linux/pci_hotplug.h>
 
 #define debugfs_create_atomic_t LINUX_BACKPORT(debugfs_create_atomic_t)
 

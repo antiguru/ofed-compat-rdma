@@ -20,6 +20,7 @@
  * Returns 0 on success, -ENOMEM for no memory, and -EAGAIN when failed to set
  * the cpu bit and need to re-call the function.
  */
+#define cpumask_set_cpu_local_first LINUX_BACKPORT(cpumask_set_cpu_local_first)
 int cpumask_set_cpu_local_first(int i, int numa_node, cpumask_t *dstp)
 {
 	cpumask_var_t mask;

@@ -15,7 +15,9 @@
 #include <linux/fdtable.h>
 #include <linux/seq_file.h>
 
+#ifndef VM_DONTDUMP
 #define VM_DONTDUMP    VM_NODUMP
+#endif
 
 #ifndef INIT_DEFERRABLE_WORK
 #define INIT_DEFERRABLE_WORK(_work, _func) INIT_DELAYED_WORK_DEFERRABLE(_work, _func)
@@ -27,6 +29,7 @@
 
 #ifdef CONFIG_USER_NS
 
+#define seq_user_ns LINUX_BACKPORT(seq_user_ns)
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,38))
 static inline struct user_namespace *seq_user_ns(struct seq_file *seq)
 {
@@ -48,10 +51,6 @@ static inline struct user_namespace *seq_user_ns(struct seq_file *seq)
 	return &init_user_ns;
 }
 #endif /* CONFIG_USER_NS */
-
-#define netlink_notify_portid(__notify) (__notify->pid)
-#define genl_info_snd_portid(__genl_info) (__genl_info->snd_pid)
-#define NETLINK_CB_PORTID(__skb) NETLINK_CB(cb->skb).pid
 
 #define mod_delayed_work LINUX_BACKPORT(mod_delayed_work)
 bool mod_delayed_work(struct workqueue_struct *wq, struct delayed_work *dwork,
@@ -135,10 +134,6 @@ enum {
 #define fget_light LINUX_BACKPORT(fget_light)
 extern struct file *fget_light(unsigned int fd, int *fput_needed);
 
-#else /* (LINUX_VERSION_CODE > KERNEL_VERSION(3,7,0)) */
-#define netlink_notify_portid(__notify) (__notify->portid)
-#define genl_info_snd_portid(__genl_info) (__genl_info->snd_portid)
-#define NETLINK_CB_PORTID(__skb) NETLINK_CB(cb->skb).portid
 #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(3,7,0)) */
 
 #endif /* LINUX_3_7_COMPAT_H */

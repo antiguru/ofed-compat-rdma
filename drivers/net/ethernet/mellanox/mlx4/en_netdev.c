@@ -1788,7 +1788,7 @@ mac_err:
 cq_err:
 	while (rx_index--) {
 		mlx4_en_deactivate_cq(priv, priv->rx_cq[rx_index]);
-		mlx4_en_free_affinity_hint(priv, i);
+		mlx4_en_free_affinity_hint(priv, rx_index);
 	}
 	for (i = 0; i < priv->rx_ring_num; i++)
 		mlx4_en_deactivate_rx_ring(priv, priv->rx_ring[i]);
@@ -2602,6 +2602,8 @@ int mlx4_en_init_netdev(struct mlx4_en_dev *mdev, int port,
 	SET_NETDEV_DEV(dev, &mdev->dev->pdev->dev);
 #ifdef HAVE_NET_DEVICE_DEV_PORT
 	dev->dev_port = port - 1;
+#else
+	dev->dev_id = port - 1;
 #endif
 
 	/*

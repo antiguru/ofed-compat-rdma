@@ -58,7 +58,6 @@ int sg_alloc_table_from_pages(struct sg_table *sgt,
 #define  PCI_EXP_LNKCAP2_CROSSLINK 	0x100 /* Crosslink supported */
 #endif
 
-#include <net/genetlink.h>
 #include <linux/etherdevice.h>
 
 /**
@@ -72,8 +71,6 @@ static inline void eth_broadcast_addr(u8 *addr)
 {
 	memset(addr, 0xff, ETH_ALEN);
 }
-
-#define GENLMSG_DEFAULT_SIZE (NLMSG_DEFAULT_SIZE - GENL_HDRLEN)
 
 /*
  * Backports 

@@ -585,7 +585,8 @@ static int mlx4_cmd_wait(struct mlx4_dev *dev, u64 in_param, u64 *out_param,
 		 * on the host, we deprecate the error message for this
 		 * specific command/input_mod/opcode_mod/fw-status to be debug.
 		 */
-		if (op == MLX4_CMD_SET_PORT && in_modifier == 1 &&
+		if (op == MLX4_CMD_SET_PORT &&
+		    (in_modifier == 1 || in_modifier == 2) &&
 		    op_modifier == 0 && context->fw_status == CMD_STAT_BAD_SIZE)
 			mlx4_dbg(dev, "command 0x%x failed: fw status = 0x%x\n",
 				 op, context->fw_status);
@@ -751,7 +752,9 @@ static int mlx4_MAD_IFC_wrapper(struct mlx4_dev *dev, int slave,
 				index = be32_to_cpu(smp->attr_mod);
 				if (port < 1 || port > dev->caps.num_ports)
 					return -EINVAL;
-				table = kcalloc(dev->caps.pkey_table_len[port], sizeof *table, GFP_KERNEL);
+				table = kcalloc((dev->caps.pkey_table_len[port] / 32) + 1,
+						sizeof(*table) * 32, GFP_KERNEL);
+
 				if (!table)
 					return -ENOMEM;
 				/* need to get the full pkey table because the paravirtualized
@@ -1071,7 +1074,7 @@ static struct mlx4_cmd_info cmd_info[] = {
 	{
 		.opcode = MLX4_CMD_HW2SW_EQ,
 		.has_inbox = false,
-		.has_outbox = true,
+		.has_outbox = false,
 		.out_is_imm = false,
 		.encode_slave_id = true,
 		.verify = NULL,

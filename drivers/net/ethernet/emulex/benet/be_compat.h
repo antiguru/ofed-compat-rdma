@@ -22,10 +22,15 @@ static inline struct sk_buff *__vlan_put_tag_fixed(struct sk_buff *skb,
 						   __be16 vlan_proto,
 						   ushort vlan_tag)
 {
+#ifdef HAVE_VLAN_INSERT_TAG_SET_PROTO
+	struct sk_buff *new_skb = vlan_insert_tag_set_proto(skb, vlan_proto,
+							    vlan_tag);
+#else
 #ifdef HAVE_3_PARAMS_FOR_VLAN_PUT_TAG
 	struct sk_buff *new_skb = __vlan_put_tag(skb, vlan_proto, vlan_tag);
 #else
 	struct sk_buff *new_skb = __vlan_put_tag(skb, vlan_tag);
+#endif
 #endif
 	return new_skb;
 }

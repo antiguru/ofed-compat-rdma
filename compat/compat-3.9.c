@@ -28,6 +28,7 @@
 static u32 hashrnd __read_mostly;
 #endif
 
+#ifndef CONFIG_COMPAT_NETIF_HAS_PICK_TX
 #define get_xps_queue LINUX_BACKPORT(get_xps_queue)
 static inline int get_xps_queue(struct net_device *dev, struct sk_buff *skb)
 {
@@ -70,26 +71,37 @@ static inline int get_xps_queue(struct net_device *dev, struct sk_buff *skb)
 #define __netdev_pick_tx LINUX_BACKPORT(__netdev_pick_tx)
 u16 __netdev_pick_tx(struct net_device *dev, struct sk_buff *skb)
 {
+	int new_index;
+#ifdef CONFIG_COMPAT_SOCK_HAS_QUEUE
 	struct sock *sk = skb->sk;
 	int queue_index = sk_tx_queue_get(sk);
 
-	if (queue_index < 0 || skb->ooo_okay ||
-	    queue_index >= dev->real_num_tx_queues) {
-		int new_index = get_xps_queue(dev, skb);
-		if (new_index < 0)
-			new_index = skb_tx_hash(dev, skb);
-
-		if (queue_index != new_index && sk &&
-		    rcu_access_pointer(sk->sk_dst_cache))
-			sk_tx_queue_set(sk, new_index);
-
-		queue_index = new_index;
+	if (queue_index >= 0 && queue_index < dev->real_num_tx_queues) {
+#ifdef CONFIG_COMPAT_NETIF_IS_XPS
+		if (!skb->ooo_okay)
+#endif /* CONFIG_COMPAT_NETIF_IS_XPS */
+			return queue_index;
 	}
+#endif /* CONFIG_COMPAT_SOCK_HAS_QUEUE */
 
-	return queue_index;
+	new_index = get_xps_queue(dev, skb);
+	if (new_index < 0)
+		new_index = skb_tx_hash(dev, skb);
+
+#ifdef CONFIG_COMPAT_SOCK_HAS_QUEUE
+	if (queue_index != new_index && sk) {
+		struct dst_entry *dst = rcu_dereference(sk->sk_dst_cache);
+		if (dst && skb_dst(skb) == dst)
+			sk_tx_queue_set(sk, new_index);
+	}
+#endif /* CONFIG_COMPAT_SOCK_HAS_QUEUE */
+
+	return new_index;
 }
 EXPORT_SYMBOL(__netdev_pick_tx);
+#endif /* CONFIG_COMPAT_NETIF_HAS_PICK_TX */
 
+#ifndef CONFIG_COMPAT_NETIF_HAS_SET_XPS_QUEUE
 #define netif_set_xps_queue LINUX_BACKPORT(netif_set_xps_queue)
 int netif_set_xps_queue(struct net_device *dev, struct cpumask *msk, u16 idx)
 {
@@ -134,3 +146,4 @@ int netif_set_xps_queue(struct net_device *dev, struct cpumask *msk, u16 idx)
 #endif /* HAVE_XPS_MAP */
 }
 EXPORT_SYMBOL(netif_set_xps_queue);
+#endif /* CONFIG_COMPAT_NETIF_HAS_SET_XPS_QUEUE */

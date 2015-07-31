@@ -7,6 +7,8 @@
 
 #include <linux/cpumask.h>
 
+#define cpumask_set_cpu_local_first LINUX_BACKPORT(cpumask_set_cpu_local_first)
+
 #if NR_CPUS == 1
 static inline int cpumask_set_cpu_local_first(int i, int numa_node, cpumask_t *dstp)
 {

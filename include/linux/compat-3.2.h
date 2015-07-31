@@ -147,9 +147,11 @@ static inline char *hex_byte_pack(char *buf, u8 byte)
  * boilerplate.  Each module may only use this macro once, and
  * calling it replaces module_init() and module_exit()
  */
+#ifndef module_platform_driver
 #define module_platform_driver(__platform_driver) \
         module_driver(__platform_driver, platform_driver_register, \
                         platform_driver_unregister)
+#endif
 
 #define dma_zalloc_coherent LINUX_BACKPORT(dma_zalloc_coherent)
 static inline void *dma_zalloc_coherent(struct device *dev, size_t size,
