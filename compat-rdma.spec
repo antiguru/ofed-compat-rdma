@@ -80,7 +80,7 @@
 
 %{!?_name: %define _name compat-rdma}
 %{!?_version: %define _version 3.18}
-%{!?_release: %define _release rc3.1.ge72998b}
+%{!?_release: %define _release 1.g71b57cc}
 
 Name: %{_name}
 Version: %{_version}
@@ -449,3 +449,4 @@ fi
 %changelog
 * Thu Feb 16 2012 Vladimir Sokolovsky <vlad@mellanox.com>
 - Created spec file for compat-rdma
+dma

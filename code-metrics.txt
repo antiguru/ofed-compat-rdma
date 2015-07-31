@@ -12,12 +12,12 @@
 [01;33m       276[00m - Code additions brought in from linux-next
 [01;33m       277[00m - Code deletions brought in from linux-next
 [31m    0.1334[00m - % of code being cherry picked from linux-next
-[01;33m      2322[00m - Code changes posted but not yet merged
-[01;33m      1796[00m - Code additions posted but not yet merged
-[01;33m       526[00m - Code deletions posted but not yet merged
-[31m    0.5603[00m - % of code not yet merged
+[01;33m      2397[00m - Code changes posted but not yet merged
+[01;33m      1843[00m - Code additions posted but not yet merged
+[01;33m       554[00m - Code deletions posted but not yet merged
+[31m    0.5784[00m - % of code not yet merged
 
 Base tree: [01;32munknown[00m
 Base tree version: [35m4b9e97b[00m
 compat.git: [36mcompat-2014-01-30-71-g49022bb[00m
-compat-rdma release: [01;33mge72998b-np[00m
+compat-rdma release: [01;33mg71b57cc-np[00m
