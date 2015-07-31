@@ -1718,19 +1718,26 @@ static void do_gro(struct sge_eth_rxq *rxq, const struct pkt_gl *gl,
 
 	if (unlikely(pkt->vlan_ex)) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0)
 		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), ntohs(pkt->vlan));
+#else
+		__vlan_hwaccel_put_tag(skb, ntohs(pkt->vlan));
+#endif
+		rxq->stats.vlan_ex++;
 #else
 		struct port_info *pi = netdev_priv(rxq->rspq.netdev);
 		struct vlan_group *grp = pi->vlan_grp;
 
-		if (likely(grp))
+		rxq->stats.vlan_ex++;
+		if (likely(grp)) {
 			ret = vlan_gro_frags(&rxq->rspq.napi, grp,
 					     be16_to_cpu(pkt->vlan));
+			goto stats;
+		}
 #endif
-		rxq->stats.vlan_ex++;
 	}
 	ret = napi_gro_frags(&rxq->rspq.napi);
-	if (ret == GRO_HELD)
+stats:	if (ret == GRO_HELD)
 		rxq->stats.lro_pkts++;
 	else if (ret == GRO_MERGED || ret == GRO_MERGED_FREE)
 		rxq->stats.lro_merged++;
@@ -1756,7 +1763,7 @@ int t4_ethrx_handler(struct sge_rspq *q, const __be64 *rsp,
 	struct sge *s = &q->adap->sge;
 	int cpl_trace_pkt = is_t4(q->adap->params.chip) ?
 			    CPL_TRACE_PKT : CPL_TRACE_PKT_T5;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 1, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
 	struct port_info *pi;
 #endif
 
@@ -1783,7 +1790,7 @@ int t4_ethrx_handler(struct sge_rspq *q, const __be64 *rsp,
 	skb_record_rx_queue(skb, q->idx);
 	if (skb->dev->features & NETIF_F_RXHASH)
 		skb->rxhash = (__force u32)pkt->rsshdr.hash_val;
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 1, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
 	pi = netdev_priv(skb->dev);
 #endif
 
@@ -1808,16 +1815,22 @@ int t4_ethrx_handler(struct sge_rspq *q, const __be64 *rsp,
 		skb_checksum_none_assert(skb);
 
 	if (unlikely(pkt->vlan_ex)) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0)
 		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), ntohs(pkt->vlan));
+#else
+		__vlan_hwaccel_put_tag(skb, ntohs(pkt->vlan));
+#endif
+		rxq->stats.vlan_ex++;
 #else
 		struct vlan_group *grp = pi->vlan_grp;
 		if (likely(grp))
 			vlan_hwaccel_receive_skb(skb, grp, ntohs(pkt->vlan));
 		else
 			dev_kfree_skb_any(skb);
-#endif
 		rxq->stats.vlan_ex++;
+		return 0;
+#endif
 	}
 	netif_receive_skb(skb);
 	return 0;

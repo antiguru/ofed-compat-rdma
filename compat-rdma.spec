@@ -96,7 +96,7 @@
 
 %{!?_name: %define _name compat-rdma}
 %{!?_version: %define _version 3.12}
-%{!?_release: %define _release 1.1.gdf134bf}
+%{!?_release: %define _release 1.1.gca07cd5}
 
 Name: %{_name}
 Version: %{_version}
@@ -694,9 +694,6 @@ fi
 %{_prefix}/src/openib
 
 %changelog
-* Wed Jul 06 2014  Jay Sternberg <jay.e.sternberg@intel.com>, Phil Cayton <phil.cayton@intel.com>
-- Add Tech Preview for Xeon-Phi 
-
 * Thu Feb 16 2012 Vladimir Sokolovsky <vlad@mellanox.com>
 - Created spec file for compat-rdma
 a

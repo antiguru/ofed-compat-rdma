@@ -4693,6 +4693,18 @@ static int cxgb_set_mac_addr(struct net_device *dev, void *p)
 	return 0;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,1,0)
+static void vlan_rx_register(struct net_device *dev, struct vlan_group *grp)
+{
+        struct port_info *pi = netdev_priv(dev);
+        struct adapter *adapter = pi->adapter;
+
+        pi->vlan_grp = grp;
+        t4_set_rxmode(adapter, adapter->mbox, pi->viid, -1, -1, -1, -1,
+                      grp != NULL, 0);
+}
+#endif
+
 #ifdef CONFIG_NET_POLL_CONTROLLER
 static void cxgb_netpoll(struct net_device *dev)
 {
@@ -4729,6 +4741,9 @@ static const struct net_device_ops cxgb4_netdev_ops = {
 	.ndo_change_mtu       = cxgb_change_mtu,
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	.ndo_poll_controller  = cxgb_netpoll,
+#endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,1,0)
+        .ndo_vlan_rx_register   = vlan_rx_register,
 #endif
 };
 
