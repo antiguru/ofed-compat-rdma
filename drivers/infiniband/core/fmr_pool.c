@@ -118,14 +118,20 @@ static inline struct ib_pool_fmr *ib_fmr_cache_lookup(struct ib_fmr_pool *pool,
 {
 	struct hlist_head *bucket;
 	struct ib_pool_fmr *fmr;
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0))
 	struct hlist_node *pos;
+#endif
 
 	if (!pool->cache_bucket)
 		return NULL;
 
 	bucket = pool->cache_bucket + ib_fmr_hash(*page_list);
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0))
 	hlist_for_each_entry(fmr, pos, bucket, cache_node)
+#else
+	hlist_for_each_entry(fmr, bucket, cache_node)
+#endif
 		if (io_virtual_address == fmr->io_virtual_address &&
 		    page_list_len      == fmr->page_list_len      &&
 		    !memcmp(page_list, fmr->page_list,

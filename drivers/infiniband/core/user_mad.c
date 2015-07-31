@@ -1183,7 +1183,11 @@ static void ib_umad_remove_one(struct ib_device *device)
 	kref_put(&umad_dev->ref, ib_umad_release_dev);
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,3,0)
 static char *umad_devnode(struct device *dev, umode_t *mode)
+#else
+static char *umad_devnode(struct device *dev, mode_t *mode)
+#endif
 {
 	return kasprintf(GFP_KERNEL, "infiniband/%s", dev_name(dev));
 }

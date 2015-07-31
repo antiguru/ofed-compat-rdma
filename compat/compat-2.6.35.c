@@ -18,7 +18,7 @@
  * hex_to_bin() converts one hex digit to its actual value or -1 in case of bad
  * input.
  */
-int compat_hex_to_bin(char ch)
+int hex_to_bin(char ch)
 {
 	if ((ch >= '0') && (ch <= '9'))
 		return ch - '0';
@@ -27,9 +27,8 @@ int compat_hex_to_bin(char ch)
 		return ch - 'a' + 10;
 	return -1;
 }
-EXPORT_SYMBOL_GPL(compat_hex_to_bin);
+EXPORT_SYMBOL_GPL(hex_to_bin);
 
-#ifndef CONFIG_COMPAT_RHEL_6_4
 /**
  * noop_llseek - No Operation Performed llseek implementation
  * @file:	file structure to seek on
@@ -46,5 +45,3 @@ loff_t noop_llseek(struct file *file, loff_t offset, int origin)
 	return file->f_pos;
 }
 EXPORT_SYMBOL_GPL(noop_llseek);
-#endif /* CONFIG_COMPAT_RHEL_6_4 */
-

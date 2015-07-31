@@ -51,6 +51,9 @@
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/seq_file.h>
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(3,8,0))
+#include <linux/sunrpc/addr.h>
+#endif
 
 #include "xprt_rdma.h"
 
@@ -85,7 +88,7 @@ static unsigned int max_memreg = RPCRDMA_LAST - 1;
 
 static struct ctl_table_header *sunrpc_table_header;
 
-static ctl_table xr_tunables_table[] = {
+static struct ctl_table xr_tunables_table[] = {
 	{
 		.procname	= "rdma_slot_table_entries",
 		.data		= &xprt_rdma_slot_table_entries,
@@ -137,7 +140,7 @@ static ctl_table xr_tunables_table[] = {
 	{ },
 };
 
-static ctl_table sunrpc_table[] = {
+static struct ctl_table sunrpc_table[] = {
 	{
 		.procname	= "sunrpc",
 		.mode		= 0555,
@@ -278,7 +281,7 @@ xprt_setup_rdma(struct xprt_create *args)
 	}
 
 	xprt = xprt_alloc(args->net, sizeof(struct rpcrdma_xprt),
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,1,0) || CONFIG_COMPAT_XPRTRDMA_NEEDED)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,1,0)) || defined (CONFIG_COMPAT_XPRT_ALLOC_4PARAMS)
 			xprt_rdma_slot_table_entries,
 #endif
 			xprt_rdma_slot_table_entries);
@@ -428,9 +431,8 @@ xprt_rdma_set_port(struct rpc_xprt *xprt, u16 port)
 }
 
 static void
-xprt_rdma_connect(struct rpc_task *task)
+xprt_rdma_connect(struct rpc_xprt *xprt, struct rpc_task *task)
 {
-	struct rpc_xprt *xprt = (struct rpc_xprt *)task->tk_xprt;
 	struct rpcrdma_xprt *r_xprt = rpcx_to_rdmax(xprt);
 
 	if (r_xprt->rx_ep.rep_connected != 0) {
@@ -450,12 +452,13 @@ xprt_rdma_connect(struct rpc_task *task)
 }
 
 static int
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,1,0) || CONFIG_COMPAT_XPRTRDMA_NEEDED)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,1,0))
 xprt_rdma_reserve_xprt(struct rpc_xprt *xprt, struct rpc_task *task)
-{
 #else
 xprt_rdma_reserve_xprt(struct rpc_task *task)
+#endif
 {
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,1,0))
 	struct rpc_xprt *xprt = task->tk_xprt;
 #endif
 	struct rpcrdma_xprt *r_xprt = rpcx_to_rdmax(xprt);
@@ -469,7 +472,7 @@ xprt_rdma_reserve_xprt(struct rpc_task *task)
 		BUG_ON(r_xprt->rx_buf.rb_cwndscale <= 0);
 	}
 	xprt->cwnd = credits * r_xprt->rx_buf.rb_cwndscale;
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,1,0) || CONFIG_COMPAT_XPRTRDMA_NEEDED)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,1,0)) || defined (CONFIG_COMPAT_XPRT_RESERVE_XPRT_CONG_2PARAMS)
 	return xprt_reserve_xprt_cong(xprt, task);
 #else
 	return xprt_reserve_xprt_cong(task);
@@ -487,7 +490,7 @@ xprt_rdma_reserve_xprt(struct rpc_task *task)
 static void *
 xprt_rdma_allocate(struct rpc_task *task, size_t size)
 {
-	struct rpc_xprt *xprt = task->tk_xprt;
+	struct rpc_xprt *xprt = task->tk_rqstp->rq_xprt;
 	struct rpcrdma_req *req, *nreq;
 
 	req = rpcrdma_buffer_get(&rpcx_to_rdmax(xprt)->rx_buf);
@@ -639,7 +642,7 @@ static int
 xprt_rdma_send_request(struct rpc_task *task)
 {
 	struct rpc_rqst *rqst = task->tk_rqstp;
-	struct rpc_xprt *xprt = task->tk_xprt;
+	struct rpc_xprt *xprt = rqst->rq_xprt;
 	struct rpcrdma_req *req = rpcr_to_rdmar(rqst);
 	struct rpcrdma_xprt *r_xprt = rpcx_to_rdmax(xprt);
 
@@ -719,6 +722,9 @@ static void xprt_rdma_print_stats(struct rpc_xprt *xprt, struct seq_file *seq)
 static struct rpc_xprt_ops xprt_rdma_procs = {
 	.reserve_xprt		= xprt_rdma_reserve_xprt,
 	.release_xprt		= xprt_release_xprt_cong, /* sunrpc/xprt.c */
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(3,7,0))
+	.alloc_slot		= xprt_alloc_slot,
+#endif
 	.release_request	= xprt_release_rqst_cong,       /* ditto */
 	.set_retrans_timeout	= xprt_set_retrans_timeout_def, /* ditto */
 	.rpcbind		= rpcb_getport_async,	/* sunrpc/rpcb_clnt.c */

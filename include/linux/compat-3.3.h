@@ -30,18 +30,13 @@ static inline void qdisc_cb_private_validate(const struct sk_buff *skb, int sz)
 extern struct sk_buff *__pskb_copy(struct sk_buff *skb,
 				   int headroom, gfp_t gfp_mask);
 
-#ifndef CONFIG_COMPAT_RHEL_6_4
-static inline void skb_complete_wifi_ack(struct sk_buff *skb, bool acked)
-{
-	WARN_ON(1);
-}
-#endif /* CONFIG_COMPAT_RHEL_6_4 */
-
 #define NL80211_FEATURE_SK_TX_STATUS 0
 
+#ifndef CONFIG_COMPAT_NETDEV_FEATURES
 typedef u32 netdev_features_t;
+#endif /* CONFIG_COMPAT_NETDEV_FEATURES */
 
-#ifndef CONFIG_COMPAT_SLES_11_3
+#ifndef module_driver
 /* source include/linux/device.h */
 /**
  * module_driver() - Helper macro for drivers that don't do anything
@@ -63,6 +58,7 @@ static void __exit __driver##_exit(void) \
 	__unregister(&(__driver)); \
 } \
 module_exit(__driver##_exit);
+#endif
 
 /* source include/linux/usb.h */
 /**
@@ -99,7 +95,10 @@ static inline void netdev_tx_reset_queue(struct netdev_queue *q)
 }
 
 #define NETIF_F_LOOPBACK       (1 << 31) /* Enable loopback */
-#endif /* CONFIG_COMPAT_SLES_11_3 */
+
+#ifndef NETIF_F_RXCSUM
+#define NETIF_F_RXCSUM		(1 << 29)
+#endif
 
 #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(3,3,0)) */
 

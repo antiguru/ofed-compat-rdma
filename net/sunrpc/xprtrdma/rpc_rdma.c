@@ -171,7 +171,7 @@ rpcrdma_create_chunks(struct rpc_rqst *rqst, struct xdr_buf *target,
 		struct rpcrdma_msg *headerp, enum rpcrdma_chunktype type)
 {
 	struct rpcrdma_req *req = rpcr_to_rdmar(rqst);
-	struct rpcrdma_xprt *r_xprt = rpcx_to_rdmax(rqst->rq_task->tk_xprt);
+	struct rpcrdma_xprt *r_xprt = rpcx_to_rdmax(rqst->rq_xprt);
 	int nsegs, nchunks = 0;
 	unsigned int pos;
 	struct rpcrdma_mr_seg *seg = req->rl_segments;
@@ -338,16 +338,16 @@ rpcrdma_inline_pullup(struct rpc_rqst *rqst, int pad)
 			curlen = copy_len;
 		dprintk("RPC:       %s: page %d destp 0x%p len %d curlen %d\n",
 			__func__, i, destp, copy_len, curlen);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0))
-		srcp = kmap_atomic(ppages[i]);
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0))
+                srcp = kmap_atomic(ppages[i], KM_SKB_SUNRPC_DATA);
 #else
-		srcp = kmap_atomic(ppages[i], KM_SKB_SUNRPC_DATA);
+		srcp = kmap_atomic(ppages[i]);
 #endif
 		memcpy(destp, srcp+page_base, curlen);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0))
-		kunmap_atomic(srcp);
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0))
+                kunmap_atomic(srcp, KM_SKB_SUNRPC_DATA);
 #else
-		kunmap_atomic(srcp, KM_SKB_SUNRPC_DATA);
+		kunmap_atomic(srcp);
 #endif
 		rqst->rq_svec[0].iov_len += curlen;
 		destp += curlen;
@@ -374,7 +374,7 @@ rpcrdma_inline_pullup(struct rpc_rqst *rqst, int pad)
 int
 rpcrdma_marshal_req(struct rpc_rqst *rqst)
 {
-	struct rpc_xprt *xprt = rqst->rq_task->tk_xprt;
+	struct rpc_xprt *xprt = rqst->rq_xprt;
 	struct rpcrdma_xprt *r_xprt = rpcx_to_rdmax(xprt);
 	struct rpcrdma_req *req = rpcr_to_rdmar(rqst);
 	char *base;
@@ -647,17 +647,17 @@ rpcrdma_inline_fixup(struct rpc_rqst *rqst, char *srcp, int copy_len, int pad)
 			dprintk("RPC:       %s: page %d"
 				" srcp 0x%p len %d curlen %d\n",
 				__func__, i, srcp, copy_len, curlen);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0))
-			destp = kmap_atomic(ppages[i]);
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0))
+                        destp = kmap_atomic(ppages[i], KM_SKB_SUNRPC_DATA);
 #else
-			destp = kmap_atomic(ppages[i], KM_SKB_SUNRPC_DATA);
+			destp = kmap_atomic(ppages[i]);
 #endif
 			memcpy(destp + page_base, srcp, curlen);
 			flush_dcache_page(ppages[i]);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0))
-			kunmap_atomic(destp);
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0))
+                        kunmap_atomic(destp, KM_SKB_SUNRPC_DATA);
 #else
-			kunmap_atomic(destp, KM_SKB_SUNRPC_DATA);
+			kunmap_atomic(destp);
 #endif
 			srcp += curlen;
 			copy_len -= curlen;

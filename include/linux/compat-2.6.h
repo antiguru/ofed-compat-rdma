@@ -4,14 +4,19 @@
 #define LINUX_BACKPORT(__sym) backport_ ##__sym
 
 #include <linux/version.h>
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,1,0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,8,0))
+#include <linux/kconfig.h>
+#include <linux/if.h>
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3,1,0))
 #include <linux/kconfig.h>
 #elif (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33))
 #include <generated/autoconf.h>
 #else
 #include <linux/autoconf.h>
 #endif
+#include <linux/compat_autoconf.h>
 #include <linux/init.h>
+#include <linux/uidgid.h>
 
 /*
  * The define overwriting module_init is based on the original module_init
@@ -24,16 +29,16 @@
  * To the call to the initfn we added the symbol dependency on compat
  * to make sure that compat.ko gets loaded for any compat modules.
  */
-void compat_dependency_symbol(void);
+void backport_dependency_symbol(void);
 
 #undef module_init
 #define module_init(initfn)						\
-	static int __init __init_compat(void)				\
+	static int __init __init_backport(void)				\
 	{								\
-		compat_dependency_symbol();				\
+		backport_dependency_symbol();				\
 		return initfn();					\
 	}								\
-	int init_module(void) __attribute__((alias("__init_compat")));
+	int init_module(void) __attribute__((alias("__init_backport")));
 
 /*
  * Each compat file represents compatibility code for new kernel
@@ -64,5 +69,12 @@ void compat_dependency_symbol(void);
 #include <linux/compat-3.3.h>
 #include <linux/compat-3.4.h>
 #include <linux/compat-3.5.h>
+#include <linux/compat-3.6.h>
+#include <linux/compat-3.7.h>
+#include <linux/compat-3.8.h>
+#include <linux/compat-3.9.h>
+#include <linux/compat-3.10.h>
+#include <linux/compat-3.11.h>
+#include <linux/compat-3.12.h>
 
 #endif /* LINUX_26_COMPAT_H */

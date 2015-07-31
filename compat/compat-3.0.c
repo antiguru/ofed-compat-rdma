@@ -9,8 +9,6 @@
  * Compatibility file for Linux wireless for kernels 3.0.
  */
 
-#ifndef CONFIG_COMPAT_RHEL_6_4
-
 #include <linux/compat.h>
 #include <linux/if_ether.h>
 
@@ -38,6 +36,7 @@ int mac_pton(const char *s, u8 *mac)
 }
 EXPORT_SYMBOL_GPL(mac_pton);
 
+#ifndef CONFIG_COMPAT_IS_KSTRTOX
 #define kstrto_from_user(f, g, type)					\
 int f(const char __user *s, size_t count, unsigned int base, type *res)	\
 {									\
@@ -62,5 +61,4 @@ kstrto_from_user(kstrtou16_from_user,	kstrtou16,	u16);
 kstrto_from_user(kstrtos16_from_user,	kstrtos16,	s16);
 kstrto_from_user(kstrtou8_from_user,	kstrtou8,	u8);
 kstrto_from_user(kstrtos8_from_user,	kstrtos8,	s8);
-
-#endif /* CONFIG_COMPAT_RHEL_6_4 */
+#endif

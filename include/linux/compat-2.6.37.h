@@ -8,6 +8,8 @@
 #include <linux/skbuff.h>
 #include <linux/leds.h>
 #include <linux/in.h>
+#include <linux/rcupdate.h>
+#include <linux/netdevice.h>
 #include <linux/errno.h>
 
 static inline int proto_ports_offset(int proto)
@@ -27,11 +29,30 @@ static inline int proto_ports_offset(int proto)
 	}
 }
 
+/* supports eipoib flags, priv_flags is short till that version */
+#define CONFIG_COMPAT_IFF_EIPOIB_PIF 0x8000 /*== IFF_OVS_DATAPATH*/
+#define CONFIG_COMPAT_IFF_EIPOIB_VIF 0x4000 /*IFF_MACVLAN_PORT*/
+
+/* Definitions for tx_flags in struct skb_shared_info */
+enum {
+	/* generate hardware time stamp */
+	SKBTX_HW_TSTAMP = 1 << 0,
+
+	/* generate software time stamp */
+	SKBTX_SW_TSTAMP = 1 << 1,
+
+	/* device driver is going to provide hardware time stamp */
+	SKBTX_IN_PROGRESS = 1 << 2,
+
+	/* ensure the originating sk reference is available on driver level */
+	SKBTX_DRV_NEEDS_SK_REF = 1 << 3,
+};
+
+
 #define SDIO_CLASS_BT_AMP	0x09	/* Type-A Bluetooth AMP interface */
 
 #define VLAN_N_VID              4096
 
-#ifndef CONFIG_COMPAT_RHEL_6_4
 /*
  *     netif_set_real_num_rx_queues - set actual number of RX queues used
  *     @dev: Network device
@@ -43,13 +64,15 @@ static inline int proto_ports_offset(int proto)
  *     possible. Hence adding this function to avoid changes in driver source
  *     code and making this function to always return success.
  */
+/* mask netif_set_real_num_rx_queues as RHEL6.4 backports this */
+#define netif_set_real_num_rx_queues(a, b) compat_netif_set_real_num_rx_queues(a, b)
 static inline int netif_set_real_num_rx_queues(struct net_device *dev,
         unsigned int rxq)
 {
     return 0;
 }
-#endif /* CONFIG_COMPAT_RHEL_6_4 */
 
+#define net_ns_type_operations LINUX_BACKPORT(net_ns_type_operations)
 extern struct kobj_ns_type_operations net_ns_type_operations;
 
 /* mask skb_checksum_none_assert as RHEL6 backports this */
@@ -69,10 +92,6 @@ static inline void skb_checksum_none_assert(struct sk_buff *skb)
 	BUG_ON(skb->ip_summed != CHECKSUM_NONE);
 #endif
 }
-
-#ifndef CONFIG_COMPAT_RHEL_6_4
-#define pcmcia_enable_device(link)	pcmcia_request_configuration(link, &link->conf)
-#endif /* CONFIG_COMPAT_RHEL_6_4 */
 
 #include <net/genetlink.h>
 
@@ -140,6 +159,7 @@ int genl_unregister_family(struct genl_family *family);
 #define genl_unregister_mc_group(_fam, _grp) genl_unregister_mc_group(&(_fam)->family, _grp)
 
 
+#define led_blink_set LINUX_BACKPORT(led_blink_set)
 extern void led_blink_set(struct led_classdev *led_cdev,
 			  unsigned long *delay_on,
 			  unsigned long *delay_off);
@@ -155,15 +175,26 @@ extern void compat_led_brightness_set(struct led_classdev *led_cdev,
 
 #define netdev_refcnt_read(a) atomic_read(&a->refcnt)
 
-/* mask vzalloc as RHEL6 backports this */
-#define vzalloc(a) compat_vzalloc(a)
+#define vzalloc LINUX_BACKPORT(vzalloc)
+#define vzalloc_node LINUX_BACKPORT(vzalloc_node)
 
 extern void *vzalloc(unsigned long size);
+extern void *vzalloc_node(unsigned long size, int node);
 
-#ifndef CONFIG_COMPAT_RHEL_6_4
+#ifndef rtnl_dereference
 #define rtnl_dereference(p)                                     \
         rcu_dereference_protected(p, lockdep_rtnl_is_held())
-#endif /* CONFIG_COMPAT_RHEL_6_4 */
+#endif
+
+#ifndef rcu_dereference_protected
+#define rcu_dereference_protected(p, c) \
+		rcu_dereference((p))
+#endif
+
+#ifndef rcu_dereference_bh
+#define rcu_dereference_bh(p) \
+		rcu_dereference((p))
+#endif
 
 /**
  * RCU_INIT_POINTER() - initialize an RCU protected pointer
@@ -174,6 +205,7 @@ extern void *vzalloc(unsigned long size);
 #define RCU_INIT_POINTER(p, v) \
 		p = (typeof(*v) __force __rcu *)(v)
 
+#define skb_has_frag_list LINUX_BACKPORT(skb_has_frag_list)
 static inline bool skb_has_frag_list(const struct sk_buff *skb)
 {
 	return skb_shinfo(skb)->frag_list != NULL;
@@ -194,6 +226,25 @@ enum additional_ethtool_flags {
     ETH_FLAG_TXVLAN         = (1 << 7),     /* TX VLAN offload enabled */
     ETH_FLAG_RXVLAN         = (1 << 8),     /* RX VLAN offload enabled */
 };
+
+extern void             unregister_netdevice_queue(struct net_device *dev,
+						   struct list_head *head);
+
+#ifndef max3
+#define max3(x, y, z) ({			\
+	typeof(x) _max1 = (x);			\
+	typeof(y) _max2 = (y);			\
+	typeof(z) _max3 = (z);			\
+	(void) (&_max1 == &_max2);		\
+	(void) (&_max1 == &_max3);		\
+	_max1 > _max2 ? (_max1 > _max3 ? _max1 : _max3) : \
+		(_max2 > _max3 ? _max2 : _max3); })
+#endif
+
+#ifndef CONFIG_COMPAT_XPRTRDMA_NEEDED
+struct rpc_xprt *	xprt_alloc(int size, int max_req);
+void			xprt_free(struct rpc_xprt *);
+#endif /* CONFIG_COMPAT_XPRTRDMA_NEEDED */
 
 #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,37)) */
 

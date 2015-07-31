@@ -2678,11 +2678,9 @@ static void nes_process_mac_intr(struct nes_device *nesdev, u32 mac_number)
 			}
 		}
 		if (nesadapter->phy_type[mac_index] == NES_PHY_TYPE_SFP_D) {
-			if (nesdev->link_recheck)
-				cancel_delayed_work(&nesdev->work);
 			nesdev->link_recheck = 1;
-			schedule_delayed_work(&nesdev->work,
-					      NES_LINK_RECHECK_DELAY);
+			mod_delayed_work(system_wq, &nesdev->work,
+					 NES_LINK_RECHECK_DELAY);
 		}
 	}
 
@@ -2911,13 +2909,12 @@ void nes_nic_ce_handler(struct nes_device *nesdev, struct nes_hw_nic_cq *cq)
 					if ((cqe_errv &
 							(NES_NIC_ERRV_BITS_IPV4_CSUM_ERR | NES_NIC_ERRV_BITS_TCPUDP_CSUM_ERR |
 							NES_NIC_ERRV_BITS_IPH_ERR | NES_NIC_ERRV_BITS_WQE_OVERRUN)) == 0) {
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,0,0))
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,0,0)
 						if (nesvnic->rx_checksum_disabled == 0)
-							rx_skb->ip_summed = CHECKSUM_UNNECESSARY;
 #else
 						if (nesvnic->netdev->features & NETIF_F_RXCSUM)
-							rx_skb->ip_summed = CHECKSUM_UNNECESSARY;
 #endif
+							rx_skb->ip_summed = CHECKSUM_UNNECESSARY;
 					} else
 						nes_debug(NES_DBG_CQ, "%s: unsuccessfully checksummed TCP or UDP packet."
 								" errv = 0x%X, pkt_type = 0x%X.\n",
@@ -2927,16 +2924,12 @@ void nes_nic_ce_handler(struct nes_device *nesdev, struct nes_hw_nic_cq *cq)
 					if ((cqe_errv &
 							(NES_NIC_ERRV_BITS_IPV4_CSUM_ERR | NES_NIC_ERRV_BITS_IPH_ERR |
 							NES_NIC_ERRV_BITS_WQE_OVERRUN)) == 0) {
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,0,0))
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,0,0)
 						if (nesvnic->rx_checksum_disabled == 0)
-							rx_skb->ip_summed = CHECKSUM_UNNECESSARY;
 #else
-						if (nesvnic->netdev->features & NETIF_F_RXCSUM) {
-							rx_skb->ip_summed = CHECKSUM_UNNECESSARY;
-							/* nes_debug(NES_DBG_CQ, "%s: Reporting successfully checksummed IPv4 packet.\n",
-								  nesvnic->netdev->name); */
-						}
+						if (nesvnic->netdev->features & NETIF_F_RXCSUM)
 #endif
+							rx_skb->ip_summed = CHECKSUM_UNNECESSARY;
 					} else
 						nes_debug(NES_DBG_CQ, "%s: unsuccessfully checksummed TCP or UDP packet."
 								" errv = 0x%X, pkt_type = 0x%X.\n",
@@ -2970,8 +2963,12 @@ void nes_nic_ce_handler(struct nes_device *nesdev, struct nes_hw_nic_cq *cq)
 						goto skip_rx_indicate0;
 					}
 #endif
-					__vlan_hwaccel_put_tag(rx_skb, vlan_tag);
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
+					__vlan_hwaccel_put_tag(rx_skb, vlan_tag);
+#else
+					__vlan_hwaccel_put_tag(rx_skb, htons(ETH_P_8021Q), vlan_tag);
+#endif
 				}
 				if (nes_use_lro)
 					lro_receive_skb(&nesvnic->lro_mgr, rx_skb, NULL);

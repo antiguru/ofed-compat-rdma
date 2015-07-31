@@ -381,6 +381,24 @@ static int cm_init_av_by_path(struct ib_sa_path_rec *path, struct cm_av *av)
 
 static int cm_alloc_id(struct cm_id_private *cm_id_priv)
 {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 9, 0))
+	unsigned long flags;
+	int id;
+	static int next_id;
+
+	idr_preload(GFP_KERNEL);
+	spin_lock_irqsave(&cm.lock, flags);
+
+	id = idr_alloc(&cm.local_id_table, cm_id_priv, next_id, 0, GFP_NOWAIT);
+	if (id >= 0)
+		next_id = max(id + 1, 0);
+
+	spin_unlock_irqrestore(&cm.lock, flags);
+	idr_preload_end();
+
+	cm_id_priv->id.local_id = (__force __be32)id ^ cm.random_id_operand;
+	return id < 0 ? id : 0;
+#else
 	unsigned long flags;
 	int ret, id;
 	static int next_id;
@@ -390,12 +408,14 @@ static int cm_alloc_id(struct cm_id_private *cm_id_priv)
 		ret = idr_get_new_above(&cm.local_id_table, cm_id_priv,
 					next_id, &id);
 		if (!ret)
-			next_id = ((unsigned) id + 1) & MAX_ID_MASK;
+			next_id = ((unsigned) id + 1) & MAX_IDR_MASK;
+
 		spin_unlock_irqrestore(&cm.lock, flags);
 	} while( (ret == -EAGAIN) && idr_pre_get(&cm.local_id_table, GFP_KERNEL) );
 
 	cm_id_priv->id.local_id = (__force __be32)id ^ cm.random_id_operand;
 	return ret;
+#endif
 }
 
 static void cm_free_id(__be32 local_id)
@@ -3659,7 +3679,11 @@ static struct kobj_type cm_port_obj_type = {
 	.release = cm_release_port_obj
 };
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,3,0)
 static char *cm_devnode(struct device *dev, umode_t *mode)
+#else
+static char *cm_devnode(struct device *dev, mode_t *mode)
+#endif
 {
 	if (mode)
 		*mode = 0666;
@@ -3844,28 +3868,31 @@ static int __init ib_cm_init(void)
 	cm.remote_sidr_table = RB_ROOT;
 	idr_init(&cm.local_id_table);
 	get_random_bytes(&cm.random_id_operand, sizeof cm.random_id_operand);
-	idr_pre_get(&cm.local_id_table, GFP_KERNEL);
 	INIT_LIST_HEAD(&cm.timewait_list);
 
 	ret = class_register(&cm_class);
-	if (ret)
-		return -ENOMEM;
-
-	cm.wq = create_workqueue("ib_cm");
-	if (!cm.wq) {
+	if (ret) {
 		ret = -ENOMEM;
 		goto error1;
 	}
 
+	cm.wq = create_workqueue("ib_cm");
+	if (!cm.wq) {
+		ret = -ENOMEM;
+		goto error2;
+	}
+
 	ret = ib_register_client(&cm_client);
 	if (ret)
-		goto error2;
+		goto error3;
 
 	return 0;
-error2:
+error3:
 	destroy_workqueue(cm.wq);
-error1:
+error2:
 	class_unregister(&cm_class);
+error1:
+	idr_destroy(&cm.local_id_table);
 	return ret;
 }
 

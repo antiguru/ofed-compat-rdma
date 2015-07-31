@@ -11,97 +11,6 @@
 /*
  * This backports:
  *
- * commit f56f821feb7b36223f309e0ec05986bb137ce418
- * Author: Daniel Vetter <daniel.vetter@ffwll.ch>
- * Date:   Sun Mar 25 19:47:41 2012 +0200
- *
- *     mm: extend prefault helpers to fault in more than PAGE_SIZE
- *
- * The new functions are used by drm/i915 driver.
- *
- */
-
-#if (!defined(CONFIG_COMPAT_RHEL_6_4) && !defined(CONFIG_COMPAT_SLES_11_3))
-static inline int fault_in_multipages_writeable(char __user *uaddr, int size)
-{
-        int ret = 0;
-        char __user *end = uaddr + size - 1;
-
-        if (unlikely(size == 0))
-                return ret;
-
-        /*
-         * Writing zeroes into userspace here is OK, because we know that if
-         * the zero gets there, we'll be overwriting it.
-         */
-        while (uaddr <= end) {
-                ret = __put_user(0, uaddr);
-                if (ret != 0)
-                        return ret;
-                uaddr += PAGE_SIZE;
-        }
-
-        /* Check whether the range spilled into the next page. */
-        if (((unsigned long)uaddr & PAGE_MASK) ==
-                        ((unsigned long)end & PAGE_MASK))
-                ret = __put_user(0, end);
-
-        return ret;
-}
-
-static inline int fault_in_multipages_readable(const char __user *uaddr,
-                                               int size)
-{
-        volatile char c;
-        int ret = 0;
-        const char __user *end = uaddr + size - 1;
-
-        if (unlikely(size == 0))
-                return ret;
-
-        while (uaddr <= end) {
-                ret = __get_user(c, uaddr);
-                if (ret != 0)
-                        return ret;
-                uaddr += PAGE_SIZE;
-        }
-
-        /* Check whether the range spilled into the next page. */
-        if (((unsigned long)uaddr & PAGE_MASK) ==
-                        ((unsigned long)end & PAGE_MASK)) {
-                ret = __get_user(c, end);
-                (void)c;
-        }
-
-        return ret;
-}
-#endif /* (!defined(CONFIG_COMPAT_RHEL_6_4) && !defined(CONFIG_COMPAT_SLES_11_3)) */
-
-/* switcheroo is available on >= 2.6.34 */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,34))
-#ifndef CONFIG_COMPAT_SLES_11_3
-#include <linux/vga_switcheroo.h>
-/*
- * This backports:
- *
- *   From 26ec685ff9d9c16525d8ec4c97e52fcdb187b302 Mon Sep 17 00:00:00 2001
- *   From: Takashi Iwai <tiwai@suse.de>
- *   Date: Fri, 11 May 2012 07:51:17 +0200
- *   Subject: [PATCH] vga_switcheroo: Introduce struct vga_switcheroo_client_ops
- *
- */
-
-struct vga_switcheroo_client_ops {
-    void (*set_gpu_state)(struct pci_dev *dev, enum vga_switcheroo_state);
-    void (*reprobe)(struct pci_dev *dev);
-    bool (*can_switch)(struct pci_dev *dev);
-};
-#endif /* CONFIG_COMPAT_SLES_11_3 */
-#endif
-
-/*
- * This backports:
- *
  *   From a3860c1c5dd1137db23d7786d284939c5761d517 Mon Sep 17 00:00:00 2001
  *   From: Xi Wang <xi.wang@gmail.com>
  *   Date: Thu, 31 May 2012 16:26:04 -0700
@@ -210,18 +119,19 @@ struct tc_fq_codel_xstats {
 	};
 };
 
+#ifndef CONFIG_COMPAT_IS_MAXRATE
+#ifndef IEEE_8021QAZ_MAX_TCS
+#define IEEE_8021QAZ_MAX_TCS 8
+#endif
+
+struct ieee_maxrate {
+	u64 tc_maxrate[IEEE_8021QAZ_MAX_TCS];
+};
+#endif
 
 /* Backports tty_lock: Localise the lock */
 #define tty_lock(__tty) tty_lock()
 #define tty_unlock(__tty) tty_unlock()
-
-#ifndef CONFIG_COMPAT_RHEL_6_4
-/* Backport ether_addr_equal */
-static inline bool ether_addr_equal(const u8 *addr1, const u8 *addr2)
-{
-    return !compare_ether_addr(addr1, addr2);
-}
-#endif /* CONFIG_COMPAT_RHEL_6_4 */
 
 #define net_ratelimited_function(function, ...)			\
 do {								\
@@ -253,7 +163,24 @@ static inline struct ctl_table_header *register_net_sysctl(struct net *net,
 	return NULL;
 }
 
+#ifndef CONFIG_COMPAT_IS_IP_TOS2PRIO
 extern const __u8 ip_tos2prio[16];
+#endif
+
+#define dev_uc_add_excl LINUX_BACKPORT(dev_uc_add_excl)
+extern int dev_uc_add_excl(struct net_device *dev, unsigned char *addr);
+
+#define dev_mc_add_excl LINUX_BACKPORT(dev_mc_add_excl)
+extern int dev_mc_add_excl(struct net_device *dev, unsigned char *addr);
+
+#define SK_CAN_REUSE 1
+
+#define ether_addr_equal_64bits LINUX_BACKPORT(ether_addr_equal_64bits)
+static inline bool ether_addr_equal_64bits(const u8 addr1[6+2],
+					   const u8 addr2[6+2])
+{
+	return !compare_ether_addr_64bits(addr1, addr2);
+}
 
 #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(3,5,0)) */
 

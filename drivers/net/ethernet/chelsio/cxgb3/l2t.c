@@ -298,8 +298,13 @@ static inline void reuse_entry(struct l2t_entry *e, struct neighbour *neigh)
 	spin_unlock(&e->lock);
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
+struct l2t_entry *t3_l2t_get(struct t3cdev *cdev, struct dst_entry *dst,
+			     struct net_device *dev, const void *daddr)
+#else
 struct l2t_entry *t3_l2t_get(struct t3cdev *cdev, struct dst_entry *dst,
 			     struct net_device *dev)
+#endif
 {
 	struct l2t_entry *e = NULL;
 	struct neighbour *neigh;
@@ -311,8 +316,8 @@ struct l2t_entry *t3_l2t_get(struct t3cdev *cdev, struct dst_entry *dst,
 	int smt_idx;
 
 	rcu_read_lock();
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 3, 0)
-	neigh = dst_get_neighbour_noref(dst);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
+	neigh = dst_neigh_lookup(dst, daddr);
 #else
 	neigh = dst_get_neighbour(dst);
 #endif
@@ -364,6 +369,8 @@ struct l2t_entry *t3_l2t_get(struct t3cdev *cdev, struct dst_entry *dst,
 done_unlock:
 	write_unlock_bh(&d->lock);
 done_rcu:
+	if (neigh)
+		neigh_release(neigh);
 	rcu_read_unlock();
 	return e;
 }

@@ -57,9 +57,11 @@
 %define build_cxgb4 %(if ( echo %{configure_options} | grep "with-cxgb4-mod" > /dev/null ); then echo -n '1'; else echo -n '0'; fi)
 %define build_nes %(if ( echo %{configure_options} | grep "with-nes-mod" > /dev/null ); then echo -n '1'; else echo -n '0'; fi)
 %define build_mlx4 %(if ( echo %{configure_options} | grep "with-mlx4-mod" > /dev/null ); then echo -n '1'; else echo -n '0'; fi)
+%define build_mlx5 %(if ( echo %{configure_options} | grep "with-mlx5-mod" > /dev/null ); then echo -n '1'; else echo -n '0'; fi)
 %define build_mlx4_en %(if ( echo %{configure_options} | grep "with-mlx4_en-mod" > /dev/null ); then echo -n '1'; else echo -n '0'; fi)
 %define build_qlgc_vnic %(if ( echo %{configure_options} | grep "with-qlgc_vnic-mod" > /dev/null ); then echo -n '1'; else echo -n '0'; fi)
 %define build_nfsrdma %(if ( echo %{configure_options} | grep "with-nfsrdma-mod" > /dev/null ); then echo -n '1'; else echo -n '0'; fi)
+%define build_ocrdma %(if ( echo %{configure_options} | grep "with-ocrdma-mod" > /dev/null ); then echo -n '1'; else echo -n '0'; fi)
 
 %{!?LIB_MOD_DIR: %define LIB_MOD_DIR /lib/modules/%{KVERSION}/updates}
 
@@ -86,8 +88,8 @@
 %endif
 
 %{!?_name: %define _name compat-rdma}
-%{!?_version: %define _version 3.5}
-%{!?_release: %define _release 2.1.ga5bbb76}
+%{!?_version: %define _version 3.12}
+%{!?_release: %define _release 1.g8336567}
 
 Name: %{_name}
 Version: %{_version}
@@ -212,7 +214,7 @@ install -m 0755 $RPM_BUILD_DIR/%{_name}-%{_version}/ofed_scripts/openibd $RPM_BU
 install -d $RPM_BUILD_ROOT/sbin
 install -m 0755 $RPM_BUILD_DIR/%{_name}-%{_version}/ofed_scripts/sysctl_perf_tuning $RPM_BUILD_ROOT/sbin
 
-%if %{build_mlx4}
+%if %{build_mlx4} || %{build_mlx5}
 install -d $RPM_BUILD_ROOT/%{_bindir}
 install -m 0755 $RPM_BUILD_DIR/%{_name}-%{_version}/ofed_scripts/ibdev2netdev $RPM_BUILD_ROOT/%{_bindir}
 %endif
@@ -430,6 +432,8 @@ fi
        echo >> %{RDMA_CONF_DIR}/openib.conf
        echo "# Load QIB" >> %{RDMA_CONF_DIR}/openib.conf
        echo "QIB_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
+       echo "# QIB QME BP VER" >> %{RDMA_CONF_DIR}/openib.conf
+       echo "QIB_QME_BPVER=1" >> %{RDMA_CONF_DIR}/openib.conf
 %endif
 
 %if %{build_ipath}
@@ -448,6 +452,12 @@ fi
        echo >> %{RDMA_CONF_DIR}/openib.conf
        echo "# Load MLX4 modules" >> %{RDMA_CONF_DIR}/openib.conf
        echo "MLX4_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
+%endif
+
+%if %{build_mlx5}
+       echo >> %{IB_CONF_DIR}/openib.conf
+       echo "# Load MLX5 modules" >> %{IB_CONF_DIR}/openib.conf
+       echo "MLX5_LOAD=yes" >> %{IB_CONF_DIR}/openib.conf
 %endif
 
 %if %{build_mlx4_en}
@@ -517,6 +527,12 @@ fi
        echo >> %{RDMA_CONF_DIR}/openib.conf
        echo "# Load QLogic VNIC module" >> %{RDMA_CONF_DIR}/openib.conf
        echo "QLGC_VNIC_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
+%endif
+
+%if %{build_ocrdma}
+       echo >> %{RDMA_CONF_DIR}/openib.conf                                                
+       echo "# Load OCRDMA modules" >> %{RDMA_CONF_DIR}/openib.conf
+       echo "OCRDMA_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
 %endif
 
 fi # 1 : closed
@@ -589,7 +605,7 @@ fi
 /etc/modprobe.d/ib_sdp.conf
 %endif
 %endif
-%if %{build_mlx4}
+%if %{build_mlx4} || %{build_mlx5}
 %{_bindir}/ibdev2netdev
 %endif
 %if %{build_mlx4_en}
@@ -608,4 +624,4 @@ fi
 * Thu Feb 16 2012 Vladimir Sokolovsky <vlad@mellanox.com>
 - Created spec file for compat-rdma
 r compat-rdma
-ma
+dma

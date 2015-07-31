@@ -14,15 +14,15 @@
 #define tiocmset(tty, set, clear) tiocmset(tty, NULL, set, clear)
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,27))
+#define tty_set_termios LINUX_BACKPORT(tty_set_termios)
 extern int tty_set_termios(struct tty_struct *tty, struct ktermios *kt);
 #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,27)) */
 
+#define netif_is_bond_slave LINUX_BACKPORT(netif_is_bond_slave)
 static inline int netif_is_bond_slave(struct net_device *dev)
 {
 	return dev->flags & IFF_SLAVE && dev->priv_flags & IFF_BONDING;
 }
-
-#ifndef CONFIG_COMPAT_RHEL_6_4
 static inline int irq_set_irq_wake(unsigned int irq, unsigned int on)
 {
 	return set_irq_wake(irq, on);
@@ -39,12 +39,12 @@ static inline int irq_set_chip_data(unsigned int irq, void *data)
 {
 	return set_irq_chip_data(irq, data);
 }
+#ifndef irq_set_irq_type
 static inline int irq_set_irq_type(unsigned int irq, unsigned int type)
 {
 	return set_irq_type(irq, type);
 }
-#endif /* CONFIG_COMPAT_RHEL_6_4 */
-
+#endif
 static inline int irq_set_msi_desc(unsigned int irq, struct msi_desc *entry)
 {
 	return set_irq_msi(irq, entry);
@@ -106,13 +106,13 @@ static inline struct msi_desc *irq_desc_get_msi_desc(struct irq_desc *desc)
 }
 #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29)) */
 
-#ifndef CONFIG_COMPAT_RHEL_6_4
+#ifndef CONFIG_COMPAT_IS_KSTRTOX
 /* 
  * kstrto* was included in kernel 2.6.38.4 and causes conflicts with the
  * version included in compat-wireless. We use strict_strtol to check if
  * kstrto* is already available.
  */
-#ifndef strict_strtol
+#ifndef strict_strtoull
 /* Internal, do not use. */
 int __must_check _kstrtoul(const char *s, unsigned int base, unsigned long *res);
 int __must_check _kstrtol(const char *s, unsigned int base, long *res);
@@ -173,7 +173,9 @@ int __must_check kstrtos16(const char *s, unsigned int base, s16 *res);
 int __must_check kstrtou8(const char *s, unsigned int base, u8 *res);
 int __must_check kstrtos8(const char *s, unsigned int base, s8 *res);
 #endif /* ifndef strict_strtol */
+#endif /* ifndef CONFIG_COMPAT_IS_KSTRTOX */
 
+#ifndef CONFIG_COMPAT_IS_BITOP
 static inline int test_bit_le(int nr, const void *addr)
 {
 	return test_bit(nr ^ BITOP_LE_SWIZZLE, addr);
@@ -188,7 +190,31 @@ static inline void __clear_bit_le(int nr, void *addr)
 {
 	__clear_bit(nr ^ BITOP_LE_SWIZZLE, addr);
 }
-#endif /* CONFIG_COMPAT_RHEL_6_4 */
+#endif
+
+#ifndef __ASSEMBLY__
+#define PTR_RET LINUX_BACKPORT(PTR_RET)
+static inline int __must_check PTR_RET(const void *ptr)
+{
+	if (IS_ERR(ptr))
+		return PTR_ERR(ptr);
+	else
+		return 0;
+}
+#endif
+
+#ifndef IEEE_8021QAZ_TSA_STRICT
+#define IEEE_8021QAZ_TSA_STRICT         0
+#endif
+#ifndef IEEE_8021QAZ_TSA_CB_SHAPER
+#define IEEE_8021QAZ_TSA_CB_SHAPER      1
+#endif
+#ifndef IEEE_8021QAZ_TSA_ETS
+#define IEEE_8021QAZ_TSA_ETS            2
+#endif
+#ifndef IEEE_8021QAZ_TSA_VENDOR
+#define IEEE_8021QAZ_TSA_VENDOR         255
+#endif
 
 #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,39)) */
 

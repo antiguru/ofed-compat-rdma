@@ -8,8 +8,6 @@
  * Compatibility file for Linux wireless for kernels 3.4.
  */
 
-#if (!defined(CONFIG_COMPAT_RHEL_6_4) && !defined(CONFIG_COMPAT_SLES_11_3))
-
 #include <linux/fs.h>
 #include <linux/module.h>
 
@@ -20,5 +18,3 @@ int simple_open(struct inode *inode, struct file *file)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(simple_open);
-
-#endif /* (!defined(CONFIG_COMPAT_RHEL_6_4) && !defined(CONFIG_COMPAT_SLES_11_3)) */

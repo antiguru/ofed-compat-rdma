@@ -22,6 +22,7 @@
 #include <linux/pci.h>
 
 /* Backports b718989da7 */
+#define pci_enable_device_mem LINUX_BACKPORT(pci_enable_device_mem)
 int __must_check pci_enable_device_mem(struct pci_dev *dev);
 
 /*
@@ -146,11 +147,11 @@ typedef u32 phys_addr_t;
  * This pm-qos implementation is copied verbatim from the kernel
  * written by mark gross mgross@linux.intel.com. You don't have
  * to do anythinig to use pm-qos except use the same exported
- * routines as used in newer kernels. The compat_pm_qos_power_init()
+ * routines as used in newer kernels. The backport_pm_qos_power_init()
  * defned below is used by the compat module to initialize pm-qos.
  */
-int compat_pm_qos_power_init(void);
-int compat_pm_qos_power_deinit(void);
+int backport_pm_qos_power_init(void);
+int backport_pm_qos_power_deinit(void);
 
 /*
  * 2.6.25 adds PM_EVENT_HIBERNATE as well here but
@@ -175,7 +176,9 @@ int compat_pm_qos_power_deinit(void);
 #define dev_crit(dev, format, arg...)           \
 	dev_printk(KERN_CRIT , dev , format , ## arg)
 
+#define __dev_addr_sync LINUX_BACKPORT(__dev_addr_sync)
 extern int		__dev_addr_sync(struct dev_addr_list **to, int *to_count, struct dev_addr_list **from, int *from_count);
+#define __dev_addr_unsync LINUX_BACKPORT(__dev_addr_unsync)
 extern void		__dev_addr_unsync(struct dev_addr_list **to, int *to_count, struct dev_addr_list **from, int *from_count);
 
 #define seq_file_net &init_net;
@@ -255,7 +258,9 @@ static inline void led_classdev_unregister_suspended(struct led_classdev *lcd)
  * The following things are out of ./include/linux/kernel.h
  * The new iwlwifi driver is using them.
  */
+#define strict_strtoul LINUX_BACKPORT(strict_strtoul)
 extern int strict_strtoul(const char *, unsigned int, unsigned long *);
+#define strict_strtol LINUX_BACKPORT(strict_strtol)
 extern int strict_strtol(const char *, unsigned int, long *);
 
 #else
@@ -263,12 +268,12 @@ extern int strict_strtol(const char *, unsigned int, long *);
  * Kernels >= 2.6.25 have pm-qos and its initialized as part of
  * the bootup process
  */
-static inline int compat_pm_qos_power_init(void)
+static inline int backport_pm_qos_power_init(void)
 {
 	return 0;
 }
 
-static inline int compat_pm_qos_power_deinit(void)
+static inline int backport_pm_qos_power_deinit(void)
 {
 	return 0;
 }

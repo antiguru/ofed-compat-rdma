@@ -548,6 +548,9 @@ static int send_reply(struct svcxprt_rdma *rdma,
 	int sge_no;
 	int sge_bytes;
 	int page_no;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,8,0))
+	int pages;
+#endif
 	int ret;
 
 	/* Post a recv buffer to handle another request. */
@@ -611,7 +614,12 @@ static int send_reply(struct svcxprt_rdma *rdma,
 	 * respages array. They are our pages until the I/O
 	 * completes.
 	 */
-	for (page_no = 0; page_no < rqstp->rq_resused; page_no++) {
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0))
+        for (page_no = 0; page_no < rqstp->rq_resused; page_no++) {
+#else
+	pages = rqstp->rq_next_page - rqstp->rq_respages;
+	for (page_no = 0; page_no < pages; page_no++) {
+#endif
 		ctxt->pages[page_no+1] = rqstp->rq_respages[page_no];
 		ctxt->count++;
 		rqstp->rq_respages[page_no] = NULL;

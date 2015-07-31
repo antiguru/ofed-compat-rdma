@@ -160,6 +160,7 @@ static int mlx4_en_dcbnl_ieee_setpfc(struct net_device *dev,
 		struct ieee_pfc *pfc)
 {
 	struct mlx4_en_priv *priv = netdev_priv(dev);
+	struct mlx4_en_port_profile *prof = priv->prof;
 	struct mlx4_en_dev *mdev = priv->mdev;
 	int err;
 
@@ -169,15 +170,17 @@ static int mlx4_en_dcbnl_ieee_setpfc(struct net_device *dev,
 			pfc->mbc,
 			pfc->delay);
 
-	priv->prof->rx_pause = priv->prof->tx_pause = !!pfc->pfc_en;
-	priv->prof->rx_ppp = priv->prof->tx_ppp = pfc->pfc_en;
+	prof->rx_pause = !pfc->pfc_en;
+	prof->tx_pause = !pfc->pfc_en;
+	prof->rx_ppp = pfc->pfc_en;
+	prof->tx_ppp = pfc->pfc_en;
 
 	err = mlx4_SET_PORT_general(mdev->dev, priv->port,
 				    priv->rx_skb_size + ETH_FCS_LEN,
-				    priv->prof->tx_pause,
-				    priv->prof->tx_ppp,
-				    priv->prof->rx_pause,
-				    priv->prof->rx_ppp);
+				    prof->tx_pause,
+				    prof->tx_ppp,
+				    prof->rx_pause,
+				    prof->rx_ppp);
 	if (err)
 		en_err(priv, "Failed setting pause params\n");
 
@@ -186,7 +189,7 @@ static int mlx4_en_dcbnl_ieee_setpfc(struct net_device *dev,
 
 static u8 mlx4_en_dcbnl_getdcbx(struct net_device *dev)
 {
-	return DCB_CAP_DCBX_VER_IEEE;
+	return DCB_CAP_DCBX_HOST | DCB_CAP_DCBX_VER_IEEE;
 }
 
 static u8 mlx4_en_dcbnl_setdcbx(struct net_device *dev, u8 mode)
@@ -200,16 +203,17 @@ static u8 mlx4_en_dcbnl_setdcbx(struct net_device *dev, u8 mode)
 	return 0;
 }
 
-#if (!defined(CONFIG_COMPAT_RHEL_6_4) && !defined(CONFIG_COMPAT_SLES_11_3))
 #define MLX4_RATELIMIT_UNITS_IN_KB 100000 /* rate-limit HW unit in Kbps */
+#ifdef CONFIG_COMPAT_IS_MAXRATE
 static int mlx4_en_dcbnl_ieee_getmaxrate(struct net_device *dev,
 				   struct ieee_maxrate *maxrate)
+#else
+int mlx4_en_dcbnl_ieee_getmaxrate(struct net_device *dev,
+				  struct ieee_maxrate *maxrate)
+#endif
 {
 	struct mlx4_en_priv *priv = netdev_priv(dev);
 	int i;
-
-	if (!priv->maxrate)
-		return -EINVAL;
 
 	for (i = 0; i < IEEE_8021QAZ_MAX_TCS; i++)
 		maxrate->tc_maxrate[i] =
@@ -218,8 +222,13 @@ static int mlx4_en_dcbnl_ieee_getmaxrate(struct net_device *dev,
 	return 0;
 }
 
+#ifdef CONFIG_COMPAT_IS_MAXRATE
 static int mlx4_en_dcbnl_ieee_setmaxrate(struct net_device *dev,
 		struct ieee_maxrate *maxrate)
+#else
+int mlx4_en_dcbnl_ieee_setmaxrate(struct net_device *dev,
+				  struct ieee_maxrate *maxrate)
+#endif
 {
 	struct mlx4_en_priv *priv = netdev_priv(dev);
 	u16 tmp[IEEE_8021QAZ_MAX_TCS];
@@ -238,19 +247,26 @@ static int mlx4_en_dcbnl_ieee_setmaxrate(struct net_device *dev,
 	if (err)
 		return err;
 
-	memcpy(priv->maxrate, tmp, sizeof(*priv->maxrate));
+	memcpy(priv->maxrate, tmp, sizeof(priv->maxrate));
 
 	return 0;
 }
-#endif /* (!defined(CONFIG_COMPAT_RHEL_6_4) && !defined(CONFIG_COMPAT_SLES_11_3)) */
 
 const struct dcbnl_rtnl_ops mlx4_en_dcbnl_ops = {
 	.ieee_getets	= mlx4_en_dcbnl_ieee_getets,
 	.ieee_setets	= mlx4_en_dcbnl_ieee_setets,
-#if (!defined(CONFIG_COMPAT_RHEL_6_4) && !defined(CONFIG_COMPAT_SLES_11_3))
+#ifdef CONFIG_COMPAT_IS_MAXRATE
 	.ieee_getmaxrate = mlx4_en_dcbnl_ieee_getmaxrate,
 	.ieee_setmaxrate = mlx4_en_dcbnl_ieee_setmaxrate,
-#endif /* (!defined(CONFIG_COMPAT_RHEL_6_4) && !defined(CONFIG_COMPAT_SLES_11_3)) */
+#endif
+	.ieee_getpfc	= mlx4_en_dcbnl_ieee_getpfc,
+	.ieee_setpfc	= mlx4_en_dcbnl_ieee_setpfc,
+
+	.getdcbx	= mlx4_en_dcbnl_getdcbx,
+	.setdcbx	= mlx4_en_dcbnl_setdcbx,
+};
+
+const struct dcbnl_rtnl_ops mlx4_en_dcbnl_pfc_ops = {
 	.ieee_getpfc	= mlx4_en_dcbnl_ieee_getpfc,
 	.ieee_setpfc	= mlx4_en_dcbnl_ieee_setpfc,
 

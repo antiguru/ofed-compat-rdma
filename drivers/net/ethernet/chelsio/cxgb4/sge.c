@@ -68,11 +68,11 @@
  */
 #define RX_PKT_SKB_LEN   512
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 7, 0)
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 6, 0)
 /* Ethernet header padding prepended to RX_PKTs */
 #define RX_PKT_PAD 2
-
 #endif
+
 /*
  * Max number of Tx descriptors we clean up at a time.  Should be modest as
  * freeing skbs isn't cheap and it happens while holding locks.  We just need
@@ -139,15 +139,15 @@
  */
 #define MAX_CTRL_WR_LEN SGE_MAX_WR_LEN
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 7, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 2, 0)
 enum {
 	/* packet alignment in FL buffers */
 	FL_ALIGN = L1_CACHE_BYTES < 32 ? 32 : L1_CACHE_BYTES,
 	/* egress status entry size */
 	STAT_LEN = L1_CACHE_BYTES > 64 ? 128 : 64
 };
-
 #endif
+
 struct tx_sw_desc {                /* SW state per Tx descriptor */
 	struct sk_buff *skb;
 	struct ulptx_sgl *sgl;
@@ -525,10 +525,14 @@ static void unmap_rx_buf(struct adapter *adap, struct sge_fl *q)
 
 static inline void ring_fl_db(struct adapter *adap, struct sge_fl *q)
 {
+	u32 val;
 	if (q->pend_cred >= 8) {
+		val = PIDX(q->pend_cred / 8);
+		if (!is_t4(adap->params.chip))
+			val |= DBTYPE(1);
 		wmb();
-		t4_write_reg(adap, MYPF_REG(SGE_PF_KDOORBELL), DBPRIO |
-			     QID(q->cntxt_id) | PIDX(q->pend_cred / 8));
+		t4_write_reg(adap, MYPF_REG(SGE_PF_KDOORBELL), DBPRIO(1) |
+			     QID(q->cntxt_id) | val);
 		q->pend_cred &= 7;
 	}
 }
@@ -603,7 +607,11 @@ static unsigned int refill_fl(struct adapter *adap, struct sge_fl *q, int n,
 
 alloc_small_pages:
 	while (n--) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
+		pg = __skb_alloc_page(gfp, NULL);
+#else
 		pg = alloc_page(gfp);
+#endif
 		if (unlikely(!pg)) {
 			q->alloc_failed++;
 			break;
@@ -721,11 +729,17 @@ static inline unsigned int flits_to_desc(unsigned int n)
  *	@skb: the packet
  *
  *	Returns whether an Ethernet packet is small enough to fit as
- *	immediate data.
+ *	immediate data. Return value corresponds to headroom required.
  */
 static inline int is_eth_imm(const struct sk_buff *skb)
 {
-	return skb->len <= MAX_IMM_TX_PKT_LEN - sizeof(struct cpl_tx_pkt);
+	int hdrlen = skb_shinfo(skb)->gso_size ?
+			sizeof(struct cpl_tx_pkt_lso_core) : 0;
+
+	hdrlen += sizeof(struct cpl_tx_pkt);
+	if (skb->len <= MAX_IMM_TX_PKT_LEN - hdrlen)
+		return hdrlen;
+	return 0;
 }
 
 /**
@@ -738,9 +752,10 @@ static inline int is_eth_imm(const struct sk_buff *skb)
 static inline unsigned int calc_tx_flits(const struct sk_buff *skb)
 {
 	unsigned int flits;
+	int hdrlen = is_eth_imm(skb);
 
-	if (is_eth_imm(skb))
-		return DIV_ROUND_UP(skb->len + sizeof(struct cpl_tx_pkt), 8);
+	if (hdrlen)
+		return DIV_ROUND_UP(skb->len + hdrlen, sizeof(__be64));
 
 	flits = sgl_len(skb_shinfo(skb)->nr_frags + 1) + 4;
 	if (skb_shinfo(skb)->gso_size)
@@ -828,7 +843,23 @@ static void write_sgl(const struct sk_buff *skb, struct sge_txq *q,
 		end = (void *)q->desc + part1;
 	}
 	if ((uintptr_t)end & 8)           /* 0-pad to multiple of 16 */
-		*(u64 *)end = 0;
+		*end = 0;
+}
+
+/* This function copies 64 byte coalesced work request to
+ * memory mapped BAR2 space(user space writes).
+ * For coalesced WR SGE, fetches data from the FIFO instead of from Host.
+ */
+static void cxgb_pio_copy(u64 __iomem *dst, u64 *src)
+{
+	int count = 8;
+
+	while (count) {
+		writeq(*src, dst);
+		src++;
+		dst++;
+		count--;
+	}
 }
 
 /**
@@ -841,11 +872,25 @@ static void write_sgl(const struct sk_buff *skb, struct sge_txq *q,
  */
 static inline void ring_tx_db(struct adapter *adap, struct sge_txq *q, int n)
 {
+	unsigned int *wr, index;
+
 	wmb();            /* write descriptors before telling HW */
 	spin_lock(&q->db_lock);
 	if (!q->db_disabled) {
-		t4_write_reg(adap, MYPF_REG(A_SGE_PF_KDOORBELL),
-			     V_QID(q->cntxt_id) | V_PIDX(n));
+		if (is_t4(adap->params.chip)) {
+			t4_write_reg(adap, MYPF_REG(SGE_PF_KDOORBELL),
+				     QID(q->cntxt_id) | PIDX(n));
+		} else {
+			if (n == 1) {
+				index = q->pidx ? (q->pidx - 1) : (q->size - 1);
+				wr = (unsigned int *)&q->desc[index];
+				cxgb_pio_copy((u64 __iomem *)
+					      (adap->bar2 + q->udb + 64),
+					      (u64 *)wr);
+			} else
+				writel(n,  adap->bar2 + q->udb + 8);
+			wmb();
+		}
 	}
 	q->db_pidx = q->pidx;
 	spin_unlock(&q->db_lock);
@@ -956,6 +1001,7 @@ static inline void txq_advance(struct sge_txq *q, unsigned int n)
  */
 netdev_tx_t t4_eth_xmit(struct sk_buff *skb, struct net_device *dev)
 {
+	int len;
 	u32 wr_mid;
 	u64 cntrl, *end;
 	int qidx, credits;
@@ -967,6 +1013,7 @@ netdev_tx_t t4_eth_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct cpl_tx_pkt_core *cpl;
 	const struct skb_shared_info *ssi;
 	dma_addr_t addr[MAX_SKB_FRAGS + 1];
+	bool immediate = false;
 
 	/*
 	 * The chip min packet length is 10 octets but play safe and reject
@@ -996,7 +1043,10 @@ out_free:	dev_kfree_skb(skb);
 		return NETDEV_TX_BUSY;
 	}
 
-	if (!is_eth_imm(skb) &&
+	if (is_eth_imm(skb))
+		immediate = true;
+
+	if (!immediate &&
 	    unlikely(map_skb(adap->pdev_dev, skb, addr) < 0)) {
 		q->mapping_err++;
 		goto out_free;
@@ -1013,6 +1063,8 @@ out_free:	dev_kfree_skb(skb);
 	wr->r3 = cpu_to_be64(0);
 	end = (u64 *)wr + flits;
 
+	len = immediate ? skb->len : 0;
+	len += sizeof(*cpl);
 	ssi = skb_shinfo(skb);
 	if (ssi->gso_size) {
 		struct cpl_tx_pkt_lso *lso = (void *)wr;
@@ -1020,8 +1072,9 @@ out_free:	dev_kfree_skb(skb);
 		int l3hdr_len = skb_network_header_len(skb);
 		int eth_xtra_len = skb_network_offset(skb) - ETH_HLEN;
 
+		len += sizeof(*lso);
 		wr->op_immdlen = htonl(FW_WR_OP(FW_ETH_TX_PKT_WR) |
-				       FW_WR_IMMDLEN(sizeof(*lso)));
+				       FW_WR_IMMDLEN(len));
 		lso->c.lso_ctrl = htonl(LSO_OPCODE(CPL_TX_PKT_LSO) |
 					LSO_FIRST_SLICE | LSO_LAST_SLICE |
 					LSO_IPV6(v6) |
@@ -1039,9 +1092,6 @@ out_free:	dev_kfree_skb(skb);
 		q->tso++;
 		q->tx_cso += ssi->gso_segs;
 	} else {
-		int len;
-
-		len = is_eth_imm(skb) ? skb->len + sizeof(*cpl) : sizeof(*cpl);
 		wr->op_immdlen = htonl(FW_WR_OP(FW_ETH_TX_PKT_WR) |
 				       FW_WR_IMMDLEN(len));
 		cpl = (void *)(wr + 1);
@@ -1063,7 +1113,7 @@ out_free:	dev_kfree_skb(skb);
 	cpl->len = htons(skb->len);
 	cpl->ctrl1 = cpu_to_be64(cntrl);
 
-	if (is_eth_imm(skb)) {
+	if (immediate) {
 		inline_tx_skb(skb, &q->q, cpl + 1);
 		dev_kfree_skb(skb);
 	} else {
@@ -1279,7 +1329,7 @@ static inline unsigned int calc_tx_flits_ofld(const struct sk_buff *skb)
 
 	flits = skb_transport_offset(skb) / 8U;   /* headers */
 	cnt = skb_shinfo(skb)->nr_frags;
-	if (skb->tail != skb->transport_header)
+	if (skb_tail_pointer(skb) != skb_transport_header(skb))
 		cnt++;
 	return flits + sgl_len(cnt);
 }
@@ -1452,8 +1502,12 @@ static inline int ofld_send(struct adapter *adap, struct sk_buff *skb)
 {
 	unsigned int idx = skb_txq(skb);
 
-	if (unlikely(is_ctrl_pkt(skb)))
+	if (unlikely(is_ctrl_pkt(skb))) {
+		/* Single ctrl queue is a requirement for LE workaround path */
+		if (adap->tids.nsftids)
+			idx = 0;
 		return ctrl_xmit(&adap->sge.ctrlq[idx], skb);
+	}
 	return ofld_xmit(&adap->sge.ofldtxq[idx], skb);
 }
 
@@ -1509,6 +1563,7 @@ static inline void copy_frags(struct skb_shared_info *ssi,
 		__skb_fill_page_desc(skb, i, gl->frags[i].page,
 				     gl->frags[i].offset,
 				     gl->frags[i].size);
+
 	/* get a reference to the last page, we don't own it */
 	get_page(gl->frags[gl->nfrags - 1].page);
 #else
@@ -1518,7 +1573,7 @@ static inline void copy_frags(struct skb_shared_info *ssi,
 	ssi->frags[0].page = gl->frags[0].page;
 	ssi->frags[0].page_offset = gl->frags[0].page_offset + offset;
 	skb_frag_size_set(&ssi->frags[0],
-			  skb_frag_size(&gl->frags[0]) - offset);
+			skb_frag_size(&gl->frags[0]) - offset);
 	ssi->nr_frags = gl->nfrags;
 	n = gl->nfrags - 1;
 	if (n)
@@ -1602,7 +1657,6 @@ static noinline int handle_trace_pkt(struct adapter *adap,
 				     const struct pkt_gl *gl)
 {
 	struct sk_buff *skb;
-	struct cpl_trace_pkt *p;
 
 	skb = cxgb4_pktgl_to_skb(gl, RX_PULL_LEN, RX_PULL_LEN);
 	if (unlikely(!skb)) {
@@ -1610,8 +1664,11 @@ static noinline int handle_trace_pkt(struct adapter *adap,
 		return 0;
 	}
 
-	p = (struct cpl_trace_pkt *)skb->data;
-	__skb_pull(skb, sizeof(*p));
+	if (is_t4(adap->params.chip))
+		__skb_pull(skb, sizeof(struct cpl_trace_pkt));
+	else
+		__skb_pull(skb, sizeof(struct cpl_t5_trace_pkt));
+
 	skb_reset_mac_header(skb);
 	skb->protocol = htons(0xffff);
 	skb->dev = adap->port[0];
@@ -1635,11 +1692,7 @@ static void do_gro(struct sge_eth_rxq *rxq, const struct pkt_gl *gl,
 	}
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 2, 0)
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0)
 	copy_frags(skb, gl, s->pktshift);
-#else
-	copy_frags(skb, gl, RX_PKT_PAD);
-#endif
 #else
 	copy_frags(skb_shinfo(skb), gl, RX_PKT_PAD);
 #endif
@@ -1652,7 +1705,16 @@ static void do_gro(struct sge_eth_rxq *rxq, const struct pkt_gl *gl,
 		skb->rxhash = (__force u32)pkt->rsshdr.hash_val;
 
 	if (unlikely(pkt->vlan_ex)) {
-		__vlan_hwaccel_put_tag(skb, ntohs(pkt->vlan));
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0)
+		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), ntohs(pkt->vlan));
+#else
+		struct port_info *pi = netdev_priv(rxq->rspq.netdev);
+		struct vlan_group *grp = pi->vlan_grp;
+
+		if (likely(grp))
+			ret = vlan_gro_frags(&rxq->rspq.napi, grp,
+					     be16_to_cpu(pkt->vlan));
+#endif
 		rxq->stats.vlan_ex++;
 	}
 	ret = napi_gro_frags(&rxq->rspq.napi);
@@ -1677,14 +1739,16 @@ int t4_ethrx_handler(struct sge_rspq *q, const __be64 *rsp,
 {
 	bool csum_ok;
 	struct sk_buff *skb;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
-	struct port_info *pi;
-#endif
 	const struct cpl_rx_pkt *pkt;
 	struct sge_eth_rxq *rxq = container_of(q, struct sge_eth_rxq, rspq);
 	struct sge *s = &q->adap->sge;
+	int cpl_trace_pkt = is_t4(q->adap->params.chip) ?
+			    CPL_TRACE_PKT : CPL_TRACE_PKT_T5;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 1, 0)
+	struct port_info *pi;
+#endif
 
-	if (unlikely(*(u8 *)rsp == CPL_TRACE_PKT))
+	if (unlikely(*(u8 *)rsp == cpl_trace_pkt))
 		return handle_trace_pkt(q->adap, si);
 
 	pkt = (const struct cpl_rx_pkt *)rsp;
@@ -1707,10 +1771,10 @@ int t4_ethrx_handler(struct sge_rspq *q, const __be64 *rsp,
 	skb_record_rx_queue(skb, q->idx);
 	if (skb->dev->features & NETIF_F_RXHASH)
 		skb->rxhash = (__force u32)pkt->rsshdr.hash_val;
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 1, 0)
 	pi = netdev_priv(skb->dev);
 #endif
+
 	rxq->stats.pkts++;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
@@ -1732,7 +1796,15 @@ int t4_ethrx_handler(struct sge_rspq *q, const __be64 *rsp,
 		skb_checksum_none_assert(skb);
 
 	if (unlikely(pkt->vlan_ex)) {
-		__vlan_hwaccel_put_tag(skb, ntohs(pkt->vlan));
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0)
+		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), ntohs(pkt->vlan));
+#else
+		struct vlan_group *grp = pi->vlan_grp;
+		if (likely(grp))
+			vlan_hwaccel_receive_skb(skb, grp, ntohs(pkt->vlan));
+		else
+			dev_kfree_skb_any(skb);
+#endif
 		rxq->stats.vlan_ex++;
 	}
 	netif_receive_skb(skb);
@@ -1821,7 +1893,7 @@ static int process_responses(struct sge_rspq *q, int budget)
 	const struct rsp_ctrl *rc;
 	struct sge_eth_rxq *rxq = container_of(q, struct sge_eth_rxq, rspq);
 	struct adapter *adapter = q->adap;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 2, 0)
 	struct sge *s = &adapter->sge;
 #endif
 
@@ -1895,11 +1967,7 @@ static int process_responses(struct sge_rspq *q, int budget)
 			ret = q->handler(q, q->cur_desc, &si);
 			if (likely(ret == 0))
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 2, 0)
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0)
 				q->offset += ALIGN(fp->size, s->fl_align);
-#else
-				q->offset += ALIGN(fp->size, FL_ALIGN);
-#endif
 #else
 				q->offset += ALIGN(skb_frag_size(fp), FL_ALIGN);
 #endif
@@ -2176,10 +2244,10 @@ int t4_sge_alloc_rxq(struct adapter *adap, struct sge_rspq *iq, bool fwevtq,
 			goto fl_nomem;
 
 		flsz = fl->size / 8 + s->stat_len / sizeof(struct tx_desc);
-		c.iqns_to_fl0congen = htonl(FW_IQ_CMD_FL0PACKEN |
+		c.iqns_to_fl0congen = htonl(FW_IQ_CMD_FL0PACKEN(1) |
 					    FW_IQ_CMD_FL0FETCHRO(1) |
 					    FW_IQ_CMD_FL0DATARO(1) |
-					    FW_IQ_CMD_FL0PADEN);
+					    FW_IQ_CMD_FL0PADEN(1));
 		c.fl0dcaen_to_fl0cidxfthresh = htons(FW_IQ_CMD_FL0FBMIN(2) |
 				FW_IQ_CMD_FL0FBMAX(3));
 		c.fl0size = htons(flsz);
@@ -2237,11 +2305,27 @@ err:
 
 static void init_txq(struct adapter *adap, struct sge_txq *q, unsigned int id)
 {
+	q->cntxt_id = id;
+	if (!is_t4(adap->params.chip)) {
+		unsigned int s_qpp;
+		unsigned short udb_density;
+		unsigned long qpshift;
+		int page;
+
+		s_qpp = QUEUESPERPAGEPF1 * adap->fn;
+		udb_density = 1 << QUEUESPERPAGEPF0_GET((t4_read_reg(adap,
+				SGE_EGRESS_QUEUES_PER_PAGE_PF) >> s_qpp));
+		qpshift = PAGE_SHIFT - ilog2(udb_density);
+		q->udb = q->cntxt_id << qpshift;
+		q->udb &= PAGE_MASK;
+		page = q->udb / PAGE_SIZE;
+		q->udb += (q->cntxt_id - (page * udb_density)) * 128;
+	}
+
 	q->in_use = 0;
 	q->cidx = q->pidx = 0;
 	q->stops = q->restarts = 0;
 	q->stat = (void *)&q->desc[q->size];
-	q->cntxt_id = id;
 	spin_lock_init(&q->db_lock);
 	adap->sge.egr_map[id - adap->sge.egr_start] = q;
 }
@@ -2681,11 +2765,20 @@ static int t4_sge_init_hard(struct adapter *adap)
 	 * Set up to drop DOORBELL writes when the DOORBELL FIFO overflows
 	 * and generate an interrupt when this occurs so we can recover.
 	 */
-	t4_set_reg_field(adap, A_SGE_DBFIFO_STATUS,
-			V_HP_INT_THRESH(M_HP_INT_THRESH) |
-			V_LP_INT_THRESH(M_LP_INT_THRESH),
-			V_HP_INT_THRESH(dbfifo_int_thresh) |
-			V_LP_INT_THRESH(dbfifo_int_thresh));
+	if (is_t4(adap->params.chip)) {
+		t4_set_reg_field(adap, A_SGE_DBFIFO_STATUS,
+				 V_HP_INT_THRESH(M_HP_INT_THRESH) |
+				 V_LP_INT_THRESH(M_LP_INT_THRESH),
+				 V_HP_INT_THRESH(dbfifo_int_thresh) |
+				 V_LP_INT_THRESH(dbfifo_int_thresh));
+	} else {
+		t4_set_reg_field(adap, A_SGE_DBFIFO_STATUS,
+				 V_LP_INT_THRESH_T5(M_LP_INT_THRESH_T5),
+				 V_LP_INT_THRESH_T5(dbfifo_int_thresh));
+		t4_set_reg_field(adap, SGE_DBFIFO_STATUS2,
+				 V_HP_INT_THRESH_T5(M_HP_INT_THRESH_T5),
+				 V_HP_INT_THRESH_T5(dbfifo_int_thresh));
+	}
 	t4_set_reg_field(adap, A_SGE_DOORBELL_CONTROL, F_ENABLE_DROP,
 			F_ENABLE_DROP);
 

@@ -12,12 +12,14 @@
  * If -E is returned, result is not touched.
  */
 #include <linux/kernel.h>
+
+#ifndef CONFIG_COMPAT_IS_KSTRTOX
 /* 
  * kstrto* was included in kernel 2.6.38.4 and causes conflicts with the
  * version included in compat-wireless. We use strict_strtol to check if
  * kstrto* is already available.
  */
-#ifndef strict_strtol
+#ifndef strict_strtoll
 
 #include <linux/ctype.h>
 #include <linux/errno.h>
@@ -25,8 +27,6 @@
 #include <linux/math64.h>
 #include <linux/module.h>
 #include <linux/types.h>
-
-#ifndef CONFIG_COMPAT_RHEL_6_4
 
 static inline char _tolower(const char c)
 {
@@ -235,6 +235,5 @@ int kstrtos8(const char *s, unsigned int base, s8 *res)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(kstrtos8);
-#endif /* CONFIG_COMPAT_RHEL_6_4 */
-
 #endif /* #ifndef strict_strtol */
+#endif /* #ifndef CONFIG_COMPAT_IS_KSTRTOX */

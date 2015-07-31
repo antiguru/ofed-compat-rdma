@@ -13,6 +13,7 @@
 #include <net/sock.h>
 #include <linux/nsproxy.h>
 #include <linux/vmalloc.h>
+#include <linux/sunrpc/xprt.h>
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,35)
 static const void *net_current_ns(void)
@@ -345,7 +346,7 @@ EXPORT_SYMBOL_GPL(compat_led_classdev_unregister);
  *	For tight control over page level allocator and protection flags
  *	use __vmalloc() instead.
  */
-void *compat_vzalloc(unsigned long size)
+void *vzalloc(unsigned long size)
 {
 	void *buf;
 	buf = vmalloc(size);
@@ -353,6 +354,55 @@ void *compat_vzalloc(unsigned long size)
 		memset(buf, 0, size);
 	return buf;
 }
-EXPORT_SYMBOL_GPL(compat_vzalloc);
+EXPORT_SYMBOL_GPL(vzalloc);
 
+/**
+ * vzalloc_node - allocate memory on a specific node with zero fill
+ * @size:       allocation size
+ * @node:       numa node
+ *
+ * Allocate enough pages to cover @size from the page level
+ * allocator and map them into contiguous kernel virtual space.
+ * The memory allocated is set to zero.
+ *
+ * For tight control over page level allocator and protection flags
+ * use __vmalloc() instead.
+ */
+void *vzalloc_node(unsigned long size, int node)
+{
+        return vzalloc(size);
+}
+EXPORT_SYMBOL(vzalloc_node);
+
+#endif
+
+#ifndef CONFIG_COMPAT_XPRTRDMA_NEEDED
+struct rpc_xprt *xprt_alloc(int size, int max_req)
+{
+	struct rpc_xprt *xprt;
+
+	xprt = kzalloc(size, GFP_KERNEL);
+	if (xprt == NULL)
+		goto out;
+
+	xprt->max_reqs = max_req;
+	xprt->slot = kcalloc(max_req, sizeof(struct rpc_rqst), GFP_KERNEL);
+	if (xprt->slot == NULL)
+		goto out_free;
+
+	return xprt;
+
+out_free:
+	kfree(xprt);
+out:
+	return NULL;
+}
+EXPORT_SYMBOL_GPL(xprt_alloc);
+
+void xprt_free(struct rpc_xprt *xprt)
+{
+	kfree(xprt->slot);
+	kfree(xprt);
+}
+EXPORT_SYMBOL_GPL(xprt_free);
 #endif

@@ -12,25 +12,19 @@
 #include <net/genetlink.h>
 #include <linux/ethtool.h>
 
-/*
- * These macros allow us to backport rfkill without any
- * changes on cfg80211 through compat.diff. Note that this
- * file will be included by rfkill_backport.h so we must
- * not conflict with things there.
- */
-#define rfkill_get_led_trigger_name	backport_rfkill_get_led_trigger_name
-#define rfkill_set_led_trigger_name	backport_rfkill_set_led_trigger_name
-#define rfkill_set_hw_state	backport_rfkill_set_hw_state
-#define rfkill_set_sw_state	backport_rfkill_set_sw_state
-#define rfkill_init_sw_state	backport_rfkill_init_sw_state
-#define rfkill_set_states	backport_rfkill_set_states
-#define rfkill_pause_polling	backport_rfkill_pause_polling
-#define rfkill_resume_polling	backport_rfkill_resume_polling
-#define rfkill_blocked		backport_rfkill_blocked
-#define rfkill_alloc		backport_rfkill_alloc
-#define rfkill_register		backport_rfkill_register
-#define rfkill_unregister	backport_rfkill_unregister
-#define rfkill_destroy		backport_rfkill_destroy
+#define rfkill_get_led_trigger_name LINUX_BACKPORT(rfkill_get_led_trigger_name)
+#define rfkill_set_led_trigger_name LINUX_BACKPORT(rfkill_set_led_trigger_name)
+#define rfkill_set_hw_state LINUX_BACKPORT(rfkill_set_hw_state)
+#define rfkill_set_sw_state LINUX_BACKPORT(rfkill_set_sw_state)
+#define rfkill_init_sw_state LINUX_BACKPORT(rfkill_init_sw_state)
+#define rfkill_set_states LINUX_BACKPORT(rfkill_set_states)
+#define rfkill_pause_polling LINUX_BACKPORT(rfkill_pause_polling)
+#define rfkill_resume_polling LINUX_BACKPORT(rfkill_resume_polling)
+#define rfkill_blocked LINUX_BACKPORT(rfkill_blocked)
+#define rfkill_alloc LINUX_BACKPORT(rfkill_alloc)
+#define rfkill_register LINUX_BACKPORT(rfkill_register)
+#define rfkill_unregister LINUX_BACKPORT(rfkill_unregister)
+#define rfkill_destroy LINUX_BACKPORT(rfkill_destroy)
 
 #ifndef ERFKILL
 #if !defined(CONFIG_ALPHA) && !defined(CONFIG_MIPS) && !defined(CONFIG_PARISC) && !defined(CONFIG_SPARC)
@@ -208,7 +202,9 @@ typedef struct {
 	long long counter;
 } atomic64_t;
 
+#define atomic64_read LINUX_BACKPORT(atomic64_read)
 extern long long atomic64_read(const atomic64_t *v);
+#define atomic64_add_return LINUX_BACKPORT(atomic64_add_return)
 extern long long atomic64_add_return(long long a, atomic64_t *v);
 
 #define atomic64_inc_return(v)          atomic64_add_return(1LL, (v))

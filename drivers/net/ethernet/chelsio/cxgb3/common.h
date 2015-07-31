@@ -42,10 +42,9 @@
 #include <linux/mdio.h>
 #include "version.h"
 
-#define CH_ERR(adap, fmt, ...)   dev_err(&adap->pdev->dev, fmt, ## __VA_ARGS__)
-#define CH_WARN(adap, fmt, ...)  dev_warn(&adap->pdev->dev, fmt, ## __VA_ARGS__)
-#define CH_ALERT(adap, fmt, ...) \
-	dev_printk(KERN_ALERT, &adap->pdev->dev, fmt, ## __VA_ARGS__)
+#define CH_ERR(adap, fmt, ...)   dev_err(&adap->pdev->dev, fmt, ##__VA_ARGS__)
+#define CH_WARN(adap, fmt, ...)  dev_warn(&adap->pdev->dev, fmt, ##__VA_ARGS__)
+#define CH_ALERT(adap, fmt, ...) dev_alert(&adap->pdev->dev, fmt, ##__VA_ARGS__)
 
 /*
  * More powerful macro that selectively prints messages based on msg_enable.
@@ -318,7 +317,7 @@ struct tp_params {
 struct qset_params {		/* SGE queue set parameters */
 	unsigned int polling;	/* polling/interrupt service for rspq */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
-	unsigned int lro;	/* large receive offload */
+	unsigned int lro;       /* large receive offload */
 #endif
 	unsigned int coalesce_usecs;	/* irq coalescing timer */
 	unsigned int rspq_size;	/* # of entries in response queue */

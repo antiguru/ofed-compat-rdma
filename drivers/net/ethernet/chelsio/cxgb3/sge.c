@@ -1278,7 +1278,7 @@ netdev_tx_t t3_eth_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 
 	/* update port statistics */
-	if (skb->ip_summed == CHECKSUM_COMPLETE)
+	if (skb->ip_summed == CHECKSUM_PARTIAL)
 		qs->port_stats[SGE_PSTAT_TX_CSUM]++;
 	if (skb_shinfo(skb)->gso_size)
 		qs->port_stats[SGE_PSTAT_TSO]++;
@@ -1537,10 +1537,9 @@ static void deferred_unmap_destructor(struct sk_buff *skb)
 	dui = (struct deferred_unmap_info *)skb->head;
 	p = dui->addr;
 
-	if (skb->tail - skb->transport_header)
-		pci_unmap_single(dui->pdev, *p++,
-				 skb->tail - skb->transport_header,
-				 PCI_DMA_TODEVICE);
+	if (skb_tail_pointer(skb) - skb_transport_header(skb))
+		pci_unmap_single(dui->pdev, *p++, skb_tail_pointer(skb) -
+				 skb_transport_header(skb), PCI_DMA_TODEVICE);
 
 	si = skb_shinfo(skb);
 	for (i = 0; i < si->nr_frags; i++)
@@ -1627,7 +1626,7 @@ static inline unsigned int calc_tx_descs_ofld(const struct sk_buff *skb)
 
 	flits = skb_transport_offset(skb) / 8;	/* headers */
 	cnt = skb_shinfo(skb)->nr_frags;
-	if (skb->tail != skb->transport_header)
+	if (skb_tail_pointer(skb) != skb_transport_header(skb))
 		cnt++;
 	return flits_to_desc(flits + sgl_len(cnt));
 }
@@ -2040,7 +2039,7 @@ static void rx_eth(struct adapter *adap, struct sge_rspq *rq,
 #endif
 		qs->port_stats[SGE_PSTAT_VLANEX]++;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0)
-		__vlan_hwaccel_put_tag(skb, ntohs(p->vlan));
+		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), ntohs(p->vlan));
 	}
 	if (rq->polling) {
 #else
@@ -2063,6 +2062,7 @@ static void rx_eth(struct adapter *adap, struct sge_rspq *rq,
 		dev_kfree_skb_any(skb);
 	} else if (rq->polling) {
 #endif
+
 		if (lro)
 			napi_gro_receive(&qs->napi, skb);
 		else {
@@ -2165,8 +2165,10 @@ static void lro_add_page(struct adapter *adap, struct sge_qset *qs,
 	skb_record_rx_queue(skb, qs - &adap->sge.qs[pi->first_qset]);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0)
-	if (cpl->vlan_valid)
-		__vlan_hwaccel_put_tag(skb, ntohs(cpl->vlan));
+	if (cpl->vlan_valid) {
+		qs->port_stats[SGE_PSTAT_VLANEX]++;
+		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), ntohs(cpl->vlan));
+	}
 #else
 	if (unlikely(cpl->vlan_valid)) {
 		struct vlan_group *grp = pi->vlan_grp;
@@ -2308,12 +2310,8 @@ static int process_responses(struct adapter *adap, struct sge_qset *qs,
 	q->next_holdoff = q->holdoff_tmr;
 
 	while (likely(budget_left && is_new_response(r, q))) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
 		int packet_complete, eth, ethpad = 2;
 		int lro = !!(qs->netdev->features & NETIF_F_GRO);
-#else
-		int packet_complete, eth, ethpad = 2, lro = qs->lro_enabled;
-#endif
 		struct sk_buff *skb = NULL;
 		u32 len, flags;
 		__be32 rss_hi, rss_lo;
@@ -2926,7 +2924,7 @@ static void sge_timer_tx(unsigned long data)
 	mod_timer(&qs->tx_reclaim_timer, jiffies + next_period);
 }
 
-/*
+/**
  *	sge_timer_rx - perform periodic maintenance of an SGE qset
  *	@data: the SGE queue set to maintain
  *

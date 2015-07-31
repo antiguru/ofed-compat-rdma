@@ -1236,9 +1236,6 @@ struct nes_vnic {
 	/* void *mem; */
 	struct nes_device *nesdev;
 	struct net_device *netdev;
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,1,0))
-	struct vlan_group *vlan_grp;
-#endif
 	atomic_t          rx_skbs_needed;
 	atomic_t          rx_skb_timer_running;
 	int               budget;
@@ -1272,7 +1269,10 @@ struct nes_vnic {
 	u8  next_qp_nic_index;
 	u8  of_device_registered;
 	u8  rdma_enabled;
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,0,0))
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,1,0)
+	struct vlan_group *vlan_grp;
+#endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,0,0)
 	u8  rx_checksum_disabled;
 #endif
 	u32 lro_max_aggr;

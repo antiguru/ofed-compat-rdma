@@ -5,16 +5,15 @@
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,36))
 
-#include <linux/usb.h>
-#include <pcmcia/cistpl.h>
-#include <pcmcia/ds.h>
 #include <linux/pm_qos_params.h>
 #include <linux/smp_lock.h>
 
-#ifndef CONFIG_COMPAT_RHEL_6_4
+#ifndef kparam_block_sysfs_write
 #define kparam_block_sysfs_write(a)
+#endif
+#ifndef kparam_unblock_sysfs_write
 #define kparam_unblock_sysfs_write(a)
-#endif /* CONFIG_COMPAT_RHEL_6_4 */
+#endif
 
 /* mask va_format as RHEL6 backports this */
 #define va_format compat_va_format
@@ -25,45 +24,6 @@ struct va_format {
 };
 
 #define device_rename(dev, new_name) device_rename(dev, (char *)new_name)
-
-#ifdef CONFIG_COMPAT_USB_URB_THREAD_FIX
-#define usb_scuttle_anchored_urbs(anchor)	compat_usb_scuttle_anchored_urbs(anchor)
-#define usb_get_from_anchor(anchor)	compat_usb_get_from_anchor(anchor)
-#define usb_unlink_anchored_urbs(anchor)	compat_usb_unlink_anchored_urbs(anchor)
-
-extern void compat_usb_unlink_anchored_urbs(struct usb_anchor *anchor);
-extern struct urb *compat_usb_get_from_anchor(struct usb_anchor *anchor);
-extern void compat_usb_scuttle_anchored_urbs(struct usb_anchor *anchor);
-#endif
-
-#ifndef CONFIG_COMPAT_RHEL_6_4
-/**
- * pcmcia_read_config_byte() - read a byte from a card configuration register
- *
- * pcmcia_read_config_byte() reads a byte from a configuration register in
- * attribute memory.
- */
-static inline int pcmcia_read_config_byte(struct pcmcia_device *p_dev, off_t where, u8 *val)
-{
-        int ret;
-        conf_reg_t reg = { 0, CS_READ, where, 0 };
-        ret = pcmcia_access_configuration_register(p_dev, &reg);
-        *val = reg.Value;
-        return ret;
-}
-
-/**
- * pcmcia_write_config_byte() - write a byte to a card configuration register
- *
- * pcmcia_write_config_byte() writes a byte to a configuration register in
- * attribute memory.
- */
-static inline int pcmcia_write_config_byte(struct pcmcia_device *p_dev, off_t where, u8 val)
-{
-	conf_reg_t reg = { 0, CS_WRITE, where, val };
-	return pcmcia_access_configuration_register(p_dev, &reg);
-}
-#endif /* CONFIG_COMPAT_RHEL_6_4 */
 
 struct pm_qos_request_list {
 	u32 qos;
@@ -139,11 +99,10 @@ static inline bool skb_defer_rx_timestamp(struct sk_buff *skb)
 	return false;
 }
 
-#ifndef CONFIG_COMPAT_RHEL_6_4
+#define skb_tx_timestamp LINUX_BACKPORT(skb_tx_timestamp)
 static inline void skb_tx_timestamp(struct sk_buff *skb)
 {
 }
-#endif /* CONFIG_COMPAT_RHEL_6_4 */
 
 /*
  * System-wide workqueues which are always present.
@@ -160,45 +119,51 @@ static inline void skb_tx_timestamp(struct sk_buff *skb)
  * item is never executed in parallel by multiple CPUs.  Queue
  * flushing might take relatively long.
  */
+#define system_wq LINUX_BACKPORT(system_wq)
 extern struct workqueue_struct *system_wq;
+#define system_long_wq LINUX_BACKPORT(system_long_wq)
 extern struct workqueue_struct *system_long_wq;
+#define system_nrt_wq LINUX_BACKPORT(system_nrt_wq)
 extern struct workqueue_struct *system_nrt_wq;
 
-void compat_system_workqueue_create(void);
-void compat_system_workqueue_destroy(void);
+int backport_system_workqueue_create(void);
+void backport_system_workqueue_destroy(void);
 
-int compat_schedule_work(struct work_struct *work);
-int compat_schedule_work_on(int cpu, struct work_struct *work);
-int compat_schedule_delayed_work(struct delayed_work *dwork,
-				 unsigned long delay);
-int compat_schedule_delayed_work_on(int cpu,
-				    struct delayed_work *dwork,
-				    unsigned long delay);
-void compat_flush_scheduled_work(void);
+#define schedule_work LINUX_BACKPORT(schedule_work)
+int schedule_work(struct work_struct *work);
+#define schedule_work_on LINUX_BACKPORT(schedule_work_on)
+int schedule_work_on(int cpu, struct work_struct *work);
+#define schedule_delayed_work LINUX_BACKPORT(schedule_delayed_work)
+int schedule_delayed_work(struct delayed_work *dwork,
+			  unsigned long delay);
+#define schedule_delayed_work_on LINUX_BACKPORT(schedule_delayed_work_on)
+int schedule_delayed_work_on(int cpu,
+			     struct delayed_work *dwork,
+			     unsigned long delay);
+#define flush_scheduled_work LINUX_BACKPORT(flush_scheduled_work)
+void flush_scheduled_work(void);
 
+#ifndef CONFIG_COMPAT_IS_WORK_BUSY
 enum {
 	/* bit mask for work_busy() return values */
 	WORK_BUSY_PENDING       = 1 << 0,
 	WORK_BUSY_RUNNING       = 1 << 1,
 };
+#endif
 
+#define work_busy LINUX_BACKPORT(work_busy)
 extern unsigned int work_busy(struct work_struct *work);
-
-#define schedule_work(work) compat_schedule_work(work)
-#define schedule_work_on(cpu, work) compat_schedule_work_on(cpu, work)
-#define schedule_delayed_work(dwork, delay) compat_schedule_delayed_work(dwork, delay)
-#define schedule_delayed_work_on(cpu, dwork, delay) compat_schedule_delayed_work_on(cpu, dwork, delay)
-#define flush_scheduled_work(a) compat_flush_scheduled_work(a)
 
 #define br_port_exists(dev)	(dev->br_port)
 
 #else
 
-static inline void compat_system_workqueue_create(void)
+static inline int backport_system_workqueue_create(void)
 {
+	return 0;
 }
 
-static inline void compat_system_workqueue_destroy(void)
+static inline void backport_system_workqueue_destroy(void)
 {
 }
 
@@ -214,6 +179,10 @@ static inline void compat_system_workqueue_destroy(void)
  * edit the upstrema code for backport efforts.
  */
 #define br_port_exists(dev)	(dev->priv_flags & IFF_BRIDGE_PORT)
+
+#ifndef __rcu
+#define __rcu
+#endif
 
 #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,36)) */
 

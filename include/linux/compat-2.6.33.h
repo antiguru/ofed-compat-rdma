@@ -17,30 +17,27 @@
 #include <linux/sched.h>
 
 #if defined(CONFIG_COMPAT_FIRMWARE_CLASS)
-#if defined(CONFIG_FW_LOADER) || defined(CONFIG_FW_LOADER_MODULE)
-#define release_firmware compat_release_firmware
-#define request_firmware compat_request_firmware
-#define request_firmware_nowait compat_request_firmware_nowait
-#endif
-#endif
+#define request_firmware_nowait LINUX_BACKPORT(request_firmware_nowait)
+#define request_firmware LINUX_BACKPORT(request_firmware)
+#define release_firmware LINUX_BACKPORT(release_firmware)
 
 #if defined(CONFIG_FW_LOADER) || defined(CONFIG_FW_LOADER_MODULE)
-int compat_request_firmware(const struct firmware **fw, const char *name,
+int request_firmware(const struct firmware **fw, const char *name,
 		     struct device *device);
-int compat_request_firmware_nowait(
+int request_firmware_nowait(
 	struct module *module, int uevent,
 	const char *name, struct device *device, gfp_t gfp, void *context,
 	void (*cont)(const struct firmware *fw, void *context));
 
-void compat_release_firmware(const struct firmware *fw);
+void release_firmware(const struct firmware *fw);
 #else
-static inline int compat_request_firmware(const struct firmware **fw,
+static inline int request_firmware(const struct firmware **fw,
 				   const char *name,
 				   struct device *device)
 {
 	return -EINVAL;
 }
-static inline int compat_request_firmware_nowait(
+static inline int request_firmware_nowait(
 	struct module *module, int uevent,
 	const char *name, struct device *device, gfp_t gfp, void *context,
 	void (*cont)(const struct firmware *fw, void *context))
@@ -48,9 +45,10 @@ static inline int compat_request_firmware_nowait(
 	return -EINVAL;
 }
 
-static inline void compat_release_firmware(const struct firmware *fw)
+static inline void release_firmware(const struct firmware *fw)
 {
 }
+#endif
 #endif
 
 /* mask KEY_RFKILL as RHEL6 backports this */
@@ -81,32 +79,6 @@ static inline struct sk_buff *netdev_alloc_skb_ip_align(struct net_device *dev,
 	return skb;
 }
 
-#if defined(CONFIG_PCCARD) || defined(CONFIG_PCCARD_MODULE)
-
-#if defined(CONFIG_PCMCIA) || defined(CONFIG_PCMCIA_MODULE)
-
-#define pcmcia_request_window(a, b, c) pcmcia_request_window(&a, b, c)
-
-#define pcmcia_map_mem_page(a, b, c) pcmcia_map_mem_page(b, c)
-
-/* loop over CIS entries */
-int pcmcia_loop_tuple(struct pcmcia_device *p_dev, cisdata_t code,
-		      int (*loop_tuple) (struct pcmcia_device *p_dev,
-					 tuple_t *tuple,
-					 void *priv_data),
-		      void *priv_data);
-
-#endif /* CONFIG_PCMCIA */
-
-/* loop over CIS entries */
-int pccard_loop_tuple(struct pcmcia_socket *s, unsigned int function,
-		      cisdata_t code, cisparse_t *parse, void *priv_data,
-		      int (*loop_tuple) (tuple_t *tuple,
-					 cisparse_t *parse,
-					 void *priv_data));
-
-#endif /* CONFIG_PCCARD */
-
 /**
  * list_for_each_entry_continue_rcu - continue iteration over list of given type
  * @pos:	the type * to use as a loop cursor.
@@ -123,8 +95,7 @@ int pccard_loop_tuple(struct pcmcia_socket *s, unsigned int function,
 
 #define sock_recv_ts_and_drops(msg, sk, skb) sock_recv_timestamp(msg, sk, skb)
 
-/* mask pci_pcie_cap as debian squeeze also backports this */
-#define pci_pcie_cap(a) compat_pci_pcie_cap(a)
+#define pci_pcie_cap LINUX_BACKPORT(pci_pcie_cap)
 
 /**
  * pci_pcie_cap - get the saved PCIe capability offset
@@ -142,8 +113,7 @@ static inline int pci_pcie_cap(struct pci_dev *dev)
 	return pci_find_capability(dev, PCI_CAP_ID_EXP);
 }
 
-/* mask pci_is_pcie as RHEL6 backports this */
-#define pci_is_pcie(a) compat_pci_is_pcie(a)
+#define pci_is_pcie LINUX_BACKPORT(pci_is_pcie)
 
 /**
  * pci_is_pcie - check if the PCI device is PCI Express capable
@@ -181,6 +151,30 @@ static inline long __must_check IS_ERR_OR_NULL(const void *ptr)
 #define IPV6_FLOW               0x11    /* hash only */
 
 #define tsk_cpus_allowed(tsk) (&(tsk)->cpus_allowed)
+
+#ifndef CONFIG_COMPAT_IS_BITMAP
+
+extern void bitmap_set(unsigned long *map, int i, int len);
+extern void bitmap_clear(unsigned long *map, int start, int nr);
+extern unsigned long bitmap_find_next_zero_area(unsigned long *map,
+					 unsigned long size,
+					 unsigned long start,
+					 unsigned int nr,
+					 unsigned long align_mask);
+
+#endif /* CONFIG_COMPAT_IS_BITMAP */
+
+#ifdef CONFIG_PPC
+#ifndef NUMA_NO_NODE
+#define	NUMA_NO_NODE	(-1)
+#endif
+#endif /* CONFIG_PPC */
+
+#define strim LINUX_BACKPORT(strim)
+extern char *strim(char *);
+
+#define skip_spaces LINUX_BACKPORT(skip_spaces)
+extern char * __must_check skip_spaces(const char *);
 
 #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)) */
 

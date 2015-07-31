@@ -50,8 +50,6 @@ int __ethtool_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 }
 EXPORT_SYMBOL(__ethtool_get_settings);
 
-#if (!defined(CONFIG_COMPAT_SLES_11_2) && !defined(CONFIG_COMPAT_SLES_11_3))
-#if !defined(RHEL_MINOR) || (RHEL_MINOR < 3)
 /**
  * llist_add_batch - add several linked entries in batch
  * @new_first:	first entry in batch to be added
@@ -110,6 +108,3 @@ struct llist_node *llist_del_first(struct llist_head *head)
 	return entry;
 }
 EXPORT_SYMBOL_GPL(llist_del_first);
-
-#endif /* (!defined(CONFIG_COMPAT_SLES_11_2) && !defined(CONFIG_COMPAT_SLES_11_3)) */
-#endif

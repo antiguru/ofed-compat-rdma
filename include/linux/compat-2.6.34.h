@@ -24,7 +24,10 @@ typedef unsigned int mmc_pm_flag_t;
 extern mmc_pm_flag_t sdio_get_host_pm_caps(struct sdio_func *func);
 extern int sdio_set_host_pm_flags(struct sdio_func *func, mmc_pm_flag_t flags);
 
-void init_compat_mmc_pm_flags(void);
+#define netdev_uc_count(dev) ((dev)->uc.count)
+#define netdev_uc_empty(dev) ((dev)->uc.count == 0)
+#define netdev_for_each_uc_addr(ha, dev) \
+        list_for_each_entry(ha, &dev->uc.list, list)
 
 #define netdev_mc_count(dev) ((dev)->mc_count)
 #define netdev_mc_empty(dev) (netdev_mc_count(dev) == 0)
@@ -177,6 +180,7 @@ do {								\
 /* source: include/linux/netdevice.h */
 
 
+#define device_lock LINUX_BACKPORT(device_lock)
 static inline void device_lock(struct device *dev)
 {
 #if defined(CONFIG_PREEMPT_RT) || defined(CONFIG_PREEMPT_DESKTOP)
@@ -186,6 +190,7 @@ static inline void device_lock(struct device *dev)
 #endif
 }
 
+#define device_trylock LINUX_BACKPORT(device_trylock)
 static inline int device_trylock(struct device *dev)
 {
 #if defined(CONFIG_PREEMPT_RT) || defined(CONFIG_PREEMPT_DESKTOP)
@@ -195,6 +200,7 @@ static inline int device_trylock(struct device *dev)
 #endif
 }
 
+#define device_unlock LINUX_BACKPORT(device_unlock)
 static inline void device_unlock(struct device *dev)
 {
 #if defined(CONFIG_PREEMPT_RT) || defined(CONFIG_PREEMPT_DESKTOP)
@@ -213,26 +219,13 @@ static inline void device_unlock(struct device *dev)
 
 #define rcu_dereference_check(p, c) rcu_dereference(p)
 
+#ifndef sysfs_attr_init
 /**
  *	sysfs_attr_init - initialize a dynamically allocated sysfs attribute
  *	@attr: struct attribute to initialize
- *
- *	Initialize a dynamically allocated struct attribute so we can
- *	make lockdep happy.  This is a new requirement for attributes
- *	and initially this is only needed when lockdep is enabled.
- *	Lockdep gives a nice error when your attribute is added to
- *	sysfs if you don't have this.
  */
-#ifdef CONFIG_DEBUG_LOCK_ALLOC
-#define sysfs_attr_init(attr)				\
-do {							\
-	static struct lock_class_key __key;		\
-							\
-	(attr)->key = &__key;				\
-} while(0)
-#else
 #define sysfs_attr_init(attr) do {} while(0)
-#endif
+#endif /* sysfs_attr_init */
 
 /**
  *	sysfs_bin_attr_init - initialize a dynamically allocated bin_attribute
@@ -290,12 +283,10 @@ static inline int usb_disable_autosuspend(struct usb_device *udev)
 #ifndef rcu_dereference_protected
 #define rcu_dereference_protected(p, c) (p)
 #endif
-#ifndef rcu_access_pointer
+
 #define rcu_access_pointer(p)   ACCESS_ONCE(p)
-#endif
-#ifndef rcu_dereference_raw
+
 #define rcu_dereference_raw(p)	rcu_dereference(p)
-#endif
 
 #define KEY_WPS_BUTTON		0x211	/* WiFi Protected Setup key */
 
@@ -309,11 +300,6 @@ static inline int usb_disable_autosuspend(struct usb_device *udev)
 #define round_up(x, y) ((((x)-1) | __round_mask(x, y))+1)
 #define round_down(x, y) ((x) & ~__round_mask(x, y))
 
-static inline int rcu_read_lock_held(void)
-{
-	return 1;
-}
-
 #ifdef CONFIG_PROVE_LOCKING
 /*
  * Obviously, this is wrong.  But the base kernel will have rtnl_mutex
@@ -326,10 +312,98 @@ static inline int lockdep_rtnl_is_held(void)
 }
 #endif /* #ifdef CONFIG_PROVE_LOCKING */
 
-#else /* Kernels >= 2.6.34 */
+#ifndef NETIF_F_NTUPLE
+#define NETIF_F_NTUPLE		(1 << 27) /* N-tuple filters supported */
+#endif
 
-static inline void init_compat_mmc_pm_flags(void)
+
+#ifndef PCI_VPD_LRDT
+#define PCI_VPD_LRDT			0x80	/* Large Resource Data Type */
+#define PCI_VPD_LRDT_ID(x)		(x | PCI_VPD_LRDT)
+
+/* Large Resource Data Type Tag Item Names */
+#define PCI_VPD_LTIN_ID_STRING		0x02	/* Identifier String */
+#define PCI_VPD_LTIN_RO_DATA		0x10	/* Read-Only Data */
+#define PCI_VPD_LTIN_RW_DATA		0x11	/* Read-Write Data */
+
+#define PCI_VPD_LRDT_ID_STRING		PCI_VPD_LRDT_ID(PCI_VPD_LTIN_ID_STRING)
+#define PCI_VPD_LRDT_RO_DATA		PCI_VPD_LRDT_ID(PCI_VPD_LTIN_RO_DATA)
+#define PCI_VPD_LRDT_RW_DATA		PCI_VPD_LRDT_ID(PCI_VPD_LTIN_RW_DATA)
+#define PCI_VPD_LRDT_TAG_SIZE		3
+#define PCI_VPD_SRDT_TAG_SIZE		1
+
+#define PCI_VPD_INFO_FLD_HDR_SIZE	3
+
+/* Small Resource Data Type Tag Item Names */
+#define PCI_VPD_STIN_END		0x78	/* End */
+
+#define PCI_VPD_SRDT_END		PCI_VPD_STIN_END
+
+#define PCI_VPD_SRDT_TIN_MASK		0x78
+#define PCI_VPD_SRDT_LEN_MASK		0x07
+#endif /* PCI_VPD_LRDT */
+
+/**
+ * pci_vpd_info_field_size - Extracts the information field length
+ * @lrdt: Pointer to the beginning of an information field header
+ *
+ * Returns the extracted information field length.
+ */
+#define pci_vpd_info_field_size LINUX_BACKPORT(pci_vpd_info_field_size)
+static inline u8 pci_vpd_info_field_size(const u8 *info_field)
 {
+	return info_field[2];
+}
+
+/**
+ * pci_vpd_lrdt_size - Extracts the Large Resource Data Type length
+ * @lrdt: Pointer to the beginning of the Large Resource Data Type tag
+ *
+ * Returns the extracted Large Resource Data Type length.
+ */
+#define pci_vpd_lrdt_size LINUX_BACKPORT(pci_vpd_lrdt_size)
+static inline u16 pci_vpd_lrdt_size(const u8 *lrdt)
+{
+	return (u16)lrdt[1] + ((u16)lrdt[2] << 8);
+}
+
+/**
+ * pci_vpd_find_info_keyword - Locates an information field keyword in the VPD
+ * @buf: Pointer to buffered vpd data
+ * @off: The offset into the buffer at which to begin the search
+ * @len: The length of the buffer area, relative to off, in which to search
+ * @kw: The keyword to search for
+ *
+ * Returns the index where the information field keyword was found or
+ * -ENOENT otherwise.
+ */
+#define pci_vpd_find_info_keyword LINUX_BACKPORT(pci_vpd_find_info_keyword)
+int pci_vpd_find_info_keyword(const u8 *buf, unsigned int off,
+			      unsigned int len, const char *kw);
+
+/**
+ * pci_vpd_find_tag - Locates the Resource Data Type tag provided
+ * @buf: Pointer to buffered vpd data
+ * @off: The offset into the buffer at which to begin the search
+ * @len: The length of the vpd buffer
+ * @rdt: The Resource Data Type to search for
+ *
+ * Returns the index where the Resource Data Type was found or
+ * -ENOENT otherwise.
+ */
+#define pci_vpd_find_tag LINUX_BACKPORT(pci_vpd_find_tag)
+int pci_vpd_find_tag(const u8 *buf, unsigned int off, unsigned int len, u8 rdt);
+
+/**
+ * pci_vpd_srdt_size - Extracts the Small Resource Data Type length
+ * @lrdt: Pointer to the beginning of the Small Resource Data Type tag
+ *
+ * Returns the extracted Small Resource Data Type length.
+ */
+#define pci_vpd_srdt_size LINUX_BACKPORT(pci_vpd_srdt_size)
+static inline u8 pci_vpd_srdt_size(const u8 *srdt)
+{
+	return (*srdt) & PCI_VPD_SRDT_LEN_MASK;
 }
 
 #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,34)) */

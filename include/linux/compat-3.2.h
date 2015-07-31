@@ -18,15 +18,13 @@
 extern int __ethtool_get_settings(struct net_device *dev,
 				  struct ethtool_cmd *cmd);
 
-#ifndef CONFIG_COMPAT_SLES_11_3
-#ifdef CONFIG_COMPAT_SKB_FRAG_NEEDED
-
 /**
  * skb_frag_page - retrieve the page refered to by a paged fragment
  * @frag: the paged fragment
  *
  * Returns the &struct page associated with @frag.
  */
+#define skb_frag_page LINUX_BACKPORT(skb_frag_page)
 static inline struct page *skb_frag_page(const skb_frag_t *frag)
 {
 	return frag->page;
@@ -39,6 +37,7 @@ static inline struct page *skb_frag_page(const skb_frag_t *frag)
  *
  * Sets the fragment @frag to contain @page.
  */
+#define __skb_frag_set_page LINUX_BACKPORT(__skb_frag_set_page)
 static inline void __skb_frag_set_page(skb_frag_t *frag, struct page *page)
 {
 	frag->page = page;
@@ -52,6 +51,7 @@ static inline void __skb_frag_set_page(skb_frag_t *frag, struct page *page)
  *
  * Sets the @f'th fragment of @skb to contain @page.
  */
+#define skb_frag_set_page LINUX_BACKPORT(skb_frag_set_page)
 static inline void skb_frag_set_page(struct sk_buff *skb, int f,
 				     struct page *page)
 {
@@ -65,6 +65,7 @@ static inline void skb_frag_set_page(struct sk_buff *skb, int f,
  * Returns the address of the data within @frag. Checks that the page
  * is mapped and returns %NULL otherwise.
  */
+#define skb_frag_address_safe LINUX_BACKPORT(skb_frag_address_safe)
 static inline void *skb_frag_address_safe(const skb_frag_t *frag)
 {
 	void *ptr = page_address(skb_frag_page(frag));
@@ -85,6 +86,7 @@ static inline void *skb_frag_address_safe(const skb_frag_t *frag)
  *
  * Maps the page associated with @frag to @device.
  */
+#define skb_frag_dma_map LINUX_BACKPORT(skb_frag_dma_map)
 static inline dma_addr_t skb_frag_dma_map(struct device *dev,
 					  const skb_frag_t *frag,
 					  size_t offset, size_t size,
@@ -94,48 +96,51 @@ static inline dma_addr_t skb_frag_dma_map(struct device *dev,
 			    frag->page_offset + offset, size, dir);
 }
 
-#define ETH_P_TDLS	0x890D          /* TDLS */
-
-static inline unsigned int skb_frag_size(const skb_frag_t *frag)
-{
-	return frag->size;
-}
-
-static inline void skb_frag_size_set(skb_frag_t *frag, unsigned int size)
-{
-	frag->size = size;
-}
-
-static inline void skb_frag_size_add(skb_frag_t *frag, int delta)
-{
-	frag->size += delta;
-}
-
-static inline void skb_frag_size_sub(skb_frag_t *frag, int delta)
-{
-	frag->size -= delta;
-}
-
 /**
  * __skb_frag_unref - release a reference on a paged fragment.
  * @frag: the paged fragment
  *
  * Releases a reference on the paged fragment @frag.
  */
+#define __skb_frag_unref LINUX_BACKPORT(__skb_frag_unref)
 static inline void __skb_frag_unref(skb_frag_t *frag)
 {
 	put_page(skb_frag_page(frag));
 }
 
-#endif /* CONFIG_COMPAT_SKB_FRAG_NEEDED */
+#define ETH_P_TDLS	0x890D          /* TDLS */
 
+#define skb_frag_size LINUX_BACKPORT(skb_frag_size)
+static inline unsigned int skb_frag_size(const skb_frag_t *frag)
+{
+	return frag->size;
+}
+
+#define skb_frag_size_set LINUX_BACKPORT(skb_frag_size_set)
+static inline void skb_frag_size_set(skb_frag_t *frag, unsigned int size)
+{
+	frag->size = size;
+}
+
+#define skb_frag_size_add LINUX_BACKPORT(skb_frag_size_add)
+static inline void skb_frag_size_add(skb_frag_t *frag, int delta)
+{
+	frag->size += delta;
+}
+
+#define skb_frag_size_sub LINUX_BACKPORT(skb_frag_size_sub)
+static inline void skb_frag_size_sub(skb_frag_t *frag, int delta)
+{
+	frag->size -= delta;
+}
+
+#define hex_byte_pack LINUX_BACKPORT(hex_byte_pack)
 static inline char *hex_byte_pack(char *buf, u8 byte)
 {
 	*buf++ = hex_asc_hi(byte);
 	*buf++ = hex_asc_lo(byte);
 	return buf;
 }
-#endif /* CONFIG_COMPAT_SLES_11_3 */
 
 /* module_platform_driver() - Helper macro for drivers that don't do
  * anything special in module init/exit.  This eliminates a lot of
@@ -146,7 +151,7 @@ static inline char *hex_byte_pack(char *buf, u8 byte)
         module_driver(__platform_driver, platform_driver_register, \
                         platform_driver_unregister)
 
-#ifndef CONFIG_COMPAT_RHEL_6_4
+#define dma_zalloc_coherent LINUX_BACKPORT(dma_zalloc_coherent)
 static inline void *dma_zalloc_coherent(struct device *dev, size_t size,
 					dma_addr_t *dma_handle, gfp_t flag)
 {
@@ -155,8 +160,8 @@ static inline void *dma_zalloc_coherent(struct device *dev, size_t size,
 		memset(ret, 0, size);
 	return ret;
 }
-#endif /* CONFIG_COMPAT_RHEL_6_4 */
 
+#define __netdev_printk LINUX_BACKPORT(__netdev_printk)
 extern int __netdev_printk(const char *level, const struct net_device *dev,
 			   struct va_format *vaf);
 

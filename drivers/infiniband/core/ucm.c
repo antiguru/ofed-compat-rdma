@@ -176,7 +176,9 @@ static void ib_ucm_cleanup_events(struct ib_ucm_context *ctx)
 static struct ib_ucm_context *ib_ucm_ctx_alloc(struct ib_ucm_file *file)
 {
 	struct ib_ucm_context *ctx;
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 9, 0))
 	int result;
+#endif
 
 	ctx = kzalloc(sizeof *ctx, GFP_KERNEL);
 	if (!ctx)
@@ -187,6 +189,13 @@ static struct ib_ucm_context *ib_ucm_ctx_alloc(struct ib_ucm_file *file)
 	ctx->file = file;
 	INIT_LIST_HEAD(&ctx->events);
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 9, 0))
+	mutex_lock(&ctx_id_mutex);
+	ctx->id = idr_alloc(&ctx_id_table, ctx, 0, 0, GFP_KERNEL);
+	mutex_unlock(&ctx_id_mutex);
+	if (ctx->id < 0)
+		goto error;
+#else
 	do {
 		result = idr_pre_get(&ctx_id_table, GFP_KERNEL);
 		if (!result)
@@ -199,6 +208,7 @@ static struct ib_ucm_context *ib_ucm_ctx_alloc(struct ib_ucm_file *file)
 
 	if (result)
 		goto error;
+#endif
 
 	list_add_tail(&ctx->file_list, &file->ctxs);
 	return ctx;
@@ -397,7 +407,6 @@ static ssize_t ib_ucm_event(struct ib_ucm_file *file,
 	struct ib_ucm_event_get cmd;
 	struct ib_ucm_event *uevent;
 	int result = 0;
-	DEFINE_WAIT(wait);
 
 	if (out_len < sizeof(struct ib_ucm_event_resp))
 		return -ENOSPC;

@@ -10,6 +10,14 @@
 #include <linux/etherdevice.h>
 #include <net/sch_generic.h>
 
+#define __DEFERRED_WORK_INITIALIZER(n, f) {			\
+	.work = __WORK_INITIALIZER((n).work, (f)),		\
+	.timer = TIMER_DEFERRED_INITIALIZER(NULL, 0, 0),	\
+	}
+
+#define DECLARE_DEFERRED_WORK(n, f)                            \
+	struct delayed_work n = __DEFERRED_WORK_INITIALIZER(n, f)
+
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,30))
 static inline void bstats_update(struct gnet_stats_basic_packed *bstats,
 				 const struct sk_buff *skb)
@@ -55,11 +63,14 @@ struct ewma {
 	unsigned long weight;
 };
 
+#define ewma_init LINUX_BACKPORT(ewma_init)
 extern void ewma_init(struct ewma *avg, unsigned long factor,
 		      unsigned long weight);
 
+#define ewma_add LINUX_BACKPORT(ewma_add)
 extern struct ewma *ewma_add(struct ewma *avg, unsigned long val);
 
+#define ewma_read LINUX_BACKPORT(ewma_read)
 /**
  * ewma_read() - Get average value
  * @avg: Average structure
@@ -72,15 +83,16 @@ static inline unsigned long ewma_read(const struct ewma *avg)
 }
 
 #define pr_warn pr_warning
-
-#ifndef CONFIG_COMPAT_RHEL_6_4
+#ifndef create_freezable_workqueue
 #define create_freezable_workqueue create_freezeable_workqueue
+#endif
 
+/* mask skb_checksum_start_offset as RHEL6.4 backports this */
+#define skb_checksum_start_offset(a) compat_skb_checksum_start_offset(a)
 static inline int skb_checksum_start_offset(const struct sk_buff *skb)
 {
 	return skb->csum_start - skb_headroom(skb);
 }
-#endif /* CONFIG_COMPAT_RHEL_6_4 */
 
 /* from include/linux/printk.h */ 
 #define pr_emerg_once(fmt, ...)					\
@@ -120,6 +132,7 @@ static inline int skb_checksum_start_offset(const struct sk_buff *skb)
  *
  * Return true if the address is a unicast address.
  */
+#define is_unicast_ether_addr LINUX_BACKPORT(is_unicast_ether_addr)
 static inline int is_unicast_ether_addr(const u8 *addr)
 {
 	return !is_multicast_ether_addr(addr);

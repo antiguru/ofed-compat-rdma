@@ -35,13 +35,43 @@
 #ifndef _T4FW_INTERFACE_H_
 #define _T4FW_INTERFACE_H_
 
-enum fw_ret_val {
-	FW_ENOEXEC      = 8,            /* Exec format error; inv microcode */
-};
-
 enum fw_retval {
-	FW_ENOMEM               = 12,   /* out of memory */
-	FW_EADDRINUSE           = 98,   /* address already in use */
+	FW_SUCCESS		= 0,	/* completed sucessfully */
+	FW_EPERM		= 1,	/* operation not permitted */
+	FW_ENOENT		= 2,	/* no such file or directory */
+	FW_EIO			= 5,	/* input/output error; hw bad */
+	FW_ENOEXEC		= 8,	/* exec format error; inv microcode */
+	FW_EAGAIN		= 11,	/* try again */
+	FW_ENOMEM		= 12,	/* out of memory */
+	FW_EFAULT		= 14,	/* bad address; fw bad */
+	FW_EBUSY		= 16,	/* resource busy */
+	FW_EEXIST		= 17,	/* file exists */
+	FW_EINVAL		= 22,	/* invalid argument */
+	FW_ENOSPC		= 28,	/* no space left on device */
+	FW_ENOSYS		= 38,	/* functionality not implemented */
+	FW_EPROTO		= 71,	/* protocol error */
+	FW_EADDRINUSE		= 98,	/* address already in use */
+	FW_EADDRNOTAVAIL	= 99,	/* cannot assigned requested address */
+	FW_ENETDOWN		= 100,	/* network is down */
+	FW_ENETUNREACH		= 101,	/* network is unreachable */
+	FW_ENOBUFS		= 105,	/* no buffer space available */
+	FW_ETIMEDOUT		= 110,	/* timeout */
+	FW_EINPROGRESS		= 115,	/* fw internal */
+	FW_SCSI_ABORT_REQUESTED	= 128,	/* */
+	FW_SCSI_ABORT_TIMEDOUT	= 129,	/* */
+	FW_SCSI_ABORTED		= 130,	/* */
+	FW_SCSI_CLOSE_REQUESTED	= 131,	/* */
+	FW_ERR_LINK_DOWN	= 132,	/* */
+	FW_RDEV_NOT_READY	= 133,	/* */
+	FW_ERR_RDEV_LOST	= 134,	/* */
+	FW_ERR_RDEV_LOGO	= 135,	/* */
+	FW_FCOE_NO_XCHG		= 136,	/* */
+	FW_SCSI_RSP_ERR		= 137,	/* */
+	FW_ERR_RDEV_IMPL_LOGO	= 138,	/* */
+	FW_SCSI_UNDER_FLOW_ERR  = 139,	/* */
+	FW_SCSI_OVER_FLOW_ERR   = 140,	/* */
+	FW_SCSI_DDP_ERR		= 141,	/* DDP error*/
+	FW_SCSI_TASK_ERR	= 142,	/* No SCSI tasks available */
 };
 
 #define FW_T4VF_SGE_BASE_ADDR      0x0000
@@ -78,6 +108,7 @@ struct fw_wr_hdr {
 };
 
 #define FW_WR_OP(x)	 ((x) << 24)
+#define FW_WR_OP_GET(x)	 (((x) >> 24) & 0xff)
 #define FW_WR_ATOMIC(x)	 ((x) << 23)
 #define FW_WR_FLUSH(x)   ((x) << 22)
 #define FW_WR_COMPL(x)   ((x) << 21)
@@ -543,7 +574,7 @@ struct fw_eth_tx_pkt_vm_wr {
 	__be16 vlantci;
 };
 
-#define FW_CMD_MAX_TIMEOUT 3000
+#define FW_CMD_MAX_TIMEOUT 10000
 
 /*
  * If a host driver does a HELLO and discovers that there's already a MASTER
@@ -585,6 +616,7 @@ enum fw_cmd_opcodes {
 	FW_RSS_IND_TBL_CMD             = 0x20,
 	FW_RSS_GLB_CONFIG_CMD          = 0x22,
 	FW_RSS_VI_CONFIG_CMD           = 0x23,
+	FW_CLIP_CMD                    = 0x28,
 	FW_LASTC2E_CMD                 = 0x40,
 	FW_ERROR_CMD                   = 0x80,
 	FW_DEBUG_CMD                   = 0x81,
@@ -610,6 +642,7 @@ struct fw_cmd_hdr {
 #define FW_CMD_OP(x)		((x) << 24)
 #define FW_CMD_OP_GET(x)        (((x) >> 24) & 0xff)
 #define FW_CMD_REQUEST          (1U << 23)
+#define FW_CMD_REQUEST_GET(x)   (((x) >> 23) & 0x1)
 #define FW_CMD_READ		(1U << 22)
 #define FW_CMD_WRITE		(1U << 21)
 #define FW_CMD_EXEC		(1U << 20)
@@ -617,6 +650,7 @@ struct fw_cmd_hdr {
 #define FW_CMD_RETVAL(x)	((x) << 8)
 #define FW_CMD_RETVAL_GET(x)	(((x) >> 8) & 0xff)
 #define FW_CMD_LEN16(x)         ((x) << 0)
+#define FW_LEN16(fw_struct)	FW_CMD_LEN16(sizeof(fw_struct) / 16)
 
 enum fw_ldst_addrspc {
 	FW_LDST_ADDRSPC_FIRMWARE  = 0x0001,
@@ -629,7 +663,8 @@ enum fw_ldst_addrspc {
 	FW_LDST_ADDRSPC_TP_MIB    = 0x0012,
 	FW_LDST_ADDRSPC_MDIO      = 0x0018,
 	FW_LDST_ADDRSPC_MPS       = 0x0020,
-	FW_LDST_ADDRSPC_FUNC      = 0x0028
+	FW_LDST_ADDRSPC_FUNC      = 0x0028,
+	FW_LDST_ADDRSPC_FUNC_PCIE = 0x0029,
 };
 
 enum fw_ldst_mps_fid {
@@ -691,6 +726,16 @@ struct fw_ldst_cmd {
 			__be64 data0;
 			__be64 data1;
 		} func;
+		struct fw_ldst_pcie {
+			u8 ctrl_to_fn;
+			u8 bnum;
+			u8 r;
+			u8 ext_r;
+			u8 select_naccess;
+			u8 pcie_fn;
+			__be16 nset_pkd;
+			__be32 data[12];
+		} pcie;
 	} u;
 };
 
@@ -700,6 +745,9 @@ struct fw_ldst_cmd {
 #define FW_LDST_CMD_FID(x)	((x) << 15)
 #define FW_LDST_CMD_CTL(x)	((x) << 0)
 #define FW_LDST_CMD_RPLCPF(x)	((x) << 0)
+#define FW_LDST_CMD_LC		(1U << 4)
+#define FW_LDST_CMD_NACCESS(x)	((x) << 0)
+#define FW_LDST_CMD_FN(x)	((x) << 0)
 
 struct fw_reset_cmd {
 	__be32 op_to_write;
@@ -721,7 +769,7 @@ enum fw_hellow_cmd {
 struct fw_hello_cmd {
 	__be32 op_to_write;
 	__be32 retval_len16;
-	__be32 err_to_mbasyncnot;
+	__be32 err_to_clearinit;
 #define FW_HELLO_CMD_ERR	    (1U << 31)
 #define FW_HELLO_CMD_INIT	    (1U << 30)
 #define FW_HELLO_CMD_MASTERDIS(x)   ((x) << 29)
@@ -731,6 +779,7 @@ struct fw_hello_cmd {
 #define FW_HELLO_CMD_MBMASTER(x)     ((x) << FW_HELLO_CMD_MBMASTER_SHIFT)
 #define FW_HELLO_CMD_MBMASTER_GET(x) \
 	(((x) >> FW_HELLO_CMD_MBMASTER_SHIFT) & FW_HELLO_CMD_MBMASTER_MASK)
+#define FW_HELLO_CMD_MBASYNCNOTINT(x)	((x) << 23)
 #define FW_HELLO_CMD_MBASYNCNOT(x)  ((x) << 20)
 #define FW_HELLO_CMD_STAGE(x)       ((x) << 17)
 #define FW_HELLO_CMD_CLEARINIT      (1U << 16)
@@ -816,6 +865,7 @@ enum fw_caps_config_iscsi {
 enum fw_caps_config_fcoe {
 	FW_CAPS_CONFIG_FCOE_INITIATOR	= 0x00000001,
 	FW_CAPS_CONFIG_FCOE_TARGET	= 0x00000002,
+	FW_CAPS_CONFIG_FCOE_CTRL_OFLD	= 0x00000004,
 };
 
 enum fw_memtype_cf {
@@ -828,7 +878,7 @@ enum fw_memtype_cf {
 
 struct fw_caps_config_cmd {
 	__be32 op_to_write;
-	__be32 retval_len16;
+	__be32 cfvalid_to_len16;
 	__be32 r2;
 	__be32 hwmbitmap;
 	__be16 nbmcaps;
@@ -882,6 +932,7 @@ enum fw_params_param_dev {
 	FW_PARAMS_PARAM_DEV_FWREV = 0x0B,
 	FW_PARAMS_PARAM_DEV_TPREV = 0x0C,
 	FW_PARAMS_PARAM_DEV_CF = 0x0D,
+	FW_PARAMS_PARAM_DEV_ULPTX_MEMWRITE_DSGL = 0x17,
 };
 
 /*
@@ -924,7 +975,9 @@ enum fw_params_param_pfvf {
 	FW_PARAMS_PARAM_PFVF_EQ_START	= 0x2B,
 	FW_PARAMS_PARAM_PFVF_EQ_END	= 0x2C,
 	FW_PARAMS_PARAM_PFVF_ACTIVE_FILTER_START = 0x2D,
-	FW_PARAMS_PARAM_PFVF_ACTIVE_FILTER_END = 0x2E
+	FW_PARAMS_PARAM_PFVF_ACTIVE_FILTER_END = 0x2E,
+	FW_PARAMS_PARAM_PFVF_ETHOFLD_END = 0x30,
+	FW_PARAMS_PARAM_PFVF_CPLFW4MSG_ENCAP = 0x31
 };
 
 /*
@@ -1089,8 +1142,8 @@ struct fw_iq_cmd {
 #define FW_IQ_CMD_FL0FETCHRO(x) ((x) << 6)
 #define FW_IQ_CMD_FL0HOSTFCMODE(x) ((x) << 4)
 #define FW_IQ_CMD_FL0CPRIO(x) ((x) << 3)
-#define FW_IQ_CMD_FL0PADEN (1U << 2)
-#define FW_IQ_CMD_FL0PACKEN (1U << 1)
+#define FW_IQ_CMD_FL0PADEN(x) ((x) << 2)
+#define FW_IQ_CMD_FL0PACKEN(x) ((x) << 1)
 #define FW_IQ_CMD_FL0CONGEN (1U << 0)
 
 #define FW_IQ_CMD_FL0DCAEN(x) ((x) << 15)
@@ -1578,6 +1631,14 @@ enum fw_port_dcb_cfg_rc {
 	FW_PORT_DCB_CFG_ERROR	= 0x1
 };
 
+enum fw_port_dcb_type {
+	FW_PORT_DCB_TYPE_PGID		= 0x00,
+	FW_PORT_DCB_TYPE_PGRATE		= 0x01,
+	FW_PORT_DCB_TYPE_PRIORATE	= 0x02,
+	FW_PORT_DCB_TYPE_PFC		= 0x03,
+	FW_PORT_DCB_TYPE_APP_ID		= 0x04,
+};
+
 struct fw_port_cmd {
 	__be32 op_to_portid;
 	__be32 action_to_len16;
@@ -1645,6 +1706,7 @@ struct fw_port_cmd {
 #define FW_PORT_CMD_TXIPG(x) ((x) << 19)
 
 #define FW_PORT_CMD_LSTATUS (1U << 31)
+#define FW_PORT_CMD_LSTATUS_GET(x) (((x) >> 31) & 0x1)
 #define FW_PORT_CMD_LSPEED(x) ((x) << 24)
 #define FW_PORT_CMD_LSPEED_GET(x) (((x) >> 24) & 0x3f)
 #define FW_PORT_CMD_TXPAUSE (1U << 23)
@@ -1681,6 +1743,9 @@ enum fw_port_type {
 	FW_PORT_TYPE_SFP,
 	FW_PORT_TYPE_BP_AP,
 	FW_PORT_TYPE_BP4_AP,
+	FW_PORT_TYPE_QSFP_10G,
+	FW_PORT_TYPE_QSFP,
+	FW_PORT_TYPE_BP40_BA,
 
 	FW_PORT_TYPE_NONE = FW_PORT_CMD_PTYPE_MASK
 };
@@ -1693,8 +1758,30 @@ enum fw_port_module_type {
 	FW_PORT_MOD_TYPE_TWINAX_PASSIVE,
 	FW_PORT_MOD_TYPE_TWINAX_ACTIVE,
 	FW_PORT_MOD_TYPE_LRM,
+	FW_PORT_MOD_TYPE_ERROR		= FW_PORT_CMD_MODTYPE_MASK - 3,
+	FW_PORT_MOD_TYPE_UNKNOWN	= FW_PORT_CMD_MODTYPE_MASK - 2,
+	FW_PORT_MOD_TYPE_NOTSUPPORTED	= FW_PORT_CMD_MODTYPE_MASK - 1,
 
 	FW_PORT_MOD_TYPE_NONE = FW_PORT_CMD_MODTYPE_MASK
+};
+
+enum fw_port_mod_sub_type {
+	FW_PORT_MOD_SUB_TYPE_NA,
+	FW_PORT_MOD_SUB_TYPE_MV88E114X = 0x1,
+	FW_PORT_MOD_SUB_TYPE_TN8022 = 0x2,
+	FW_PORT_MOD_SUB_TYPE_AQ1202 = 0x3,
+	FW_PORT_MOD_SUB_TYPE_88x3120 = 0x4,
+	FW_PORT_MOD_SUB_TYPE_BCM84834 = 0x5,
+	FW_PORT_MOD_SUB_TYPE_BT_VSC8634 = 0x8,
+
+	/* The following will never been in the VPD.  They are TWINAX cable
+	 * lengths decoded from SFP+ module i2c PROMs.  These should
+	 * almost certainly go somewhere else ...
+	 */
+	FW_PORT_MOD_SUB_TYPE_TWINAX_1 = 0x9,
+	FW_PORT_MOD_SUB_TYPE_TWINAX_3 = 0xA,
+	FW_PORT_MOD_SUB_TYPE_TWINAX_5 = 0xB,
+	FW_PORT_MOD_SUB_TYPE_TWINAX_7 = 0xC,
 };
 
 /* port stats */
@@ -1980,6 +2067,28 @@ struct fw_rss_vi_config_cmd {
 	} u;
 };
 
+struct fw_clip_cmd {
+	__be32 op_to_write;
+	__be32 alloc_to_len16;
+	__be64 ip_hi;
+	__be64 ip_lo;
+	__be32 r4[2];
+};
+
+#define S_FW_CLIP_CMD_ALLOC     31
+#define M_FW_CLIP_CMD_ALLOC     0x1
+#define V_FW_CLIP_CMD_ALLOC(x)  ((x) << S_FW_CLIP_CMD_ALLOC)
+#define G_FW_CLIP_CMD_ALLOC(x)  \
+	(((x) >> S_FW_CLIP_CMD_ALLOC) & M_FW_CLIP_CMD_ALLOC)
+#define F_FW_CLIP_CMD_ALLOC     V_FW_CLIP_CMD_ALLOC(1U)
+
+#define S_FW_CLIP_CMD_FREE      30
+#define M_FW_CLIP_CMD_FREE      0x1
+#define V_FW_CLIP_CMD_FREE(x)   ((x) << S_FW_CLIP_CMD_FREE)
+#define G_FW_CLIP_CMD_FREE(x)   \
+	(((x) >> S_FW_CLIP_CMD_FREE) & M_FW_CLIP_CMD_FREE)
+#define F_FW_CLIP_CMD_FREE      V_FW_CLIP_CMD_FREE(1U)
+
 enum fw_error_type {
 	FW_ERROR_TYPE_EXCEPTION		= 0x0,
 	FW_ERROR_TYPE_HWMODULE		= 0x1,
@@ -2052,7 +2161,7 @@ struct fw_debug_cmd {
 
 struct fw_hdr {
 	u8 ver;
-	u8 reserved1;
+	u8 chip;			/* terminator chip type */
 	__be16	len512;			/* bin length in units of 512-bytes */
 	__be32	fw_ver;			/* firmware version */
 	__be32	tp_microcode_ver;
@@ -2062,19 +2171,35 @@ struct fw_hdr {
 	u8 intfver_ri;
 	u8 intfver_iscsipdu;
 	u8 intfver_iscsi;
+	u8 intfver_fcoepdu;
 	u8 intfver_fcoe;
-	u8 reserved2;
+	__u32   reserved2;
 	__u32   reserved3;
 	__u32   reserved4;
-	__u32   reserved5;
 	__be32  flags;
 	__be32  reserved6[23];
+};
+
+enum fw_hdr_chip {
+	FW_HDR_CHIP_T4,
+	FW_HDR_CHIP_T5
 };
 
 #define FW_HDR_FW_VER_MAJOR_GET(x) (((x) >> 24) & 0xff)
 #define FW_HDR_FW_VER_MINOR_GET(x) (((x) >> 16) & 0xff)
 #define FW_HDR_FW_VER_MICRO_GET(x) (((x) >> 8) & 0xff)
 #define FW_HDR_FW_VER_BUILD_GET(x) (((x) >> 0) & 0xff)
+
+enum fw_hdr_intfver {
+	FW_HDR_INTFVER_NIC      = 0x00,
+	FW_HDR_INTFVER_VNIC     = 0x00,
+	FW_HDR_INTFVER_OFLD     = 0x00,
+	FW_HDR_INTFVER_RI       = 0x00,
+	FW_HDR_INTFVER_ISCSIPDU = 0x00,
+	FW_HDR_INTFVER_ISCSI    = 0x00,
+	FW_HDR_INTFVER_FCOEPDU  = 0x00,
+	FW_HDR_INTFVER_FCOE     = 0x00,
+};
 
 enum fw_hdr_flags {
 	FW_HDR_FLAGS_RESET_HALT = 0x00000001,

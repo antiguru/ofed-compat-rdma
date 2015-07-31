@@ -29,6 +29,10 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
+#undef pr_fmt
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/init.h>
@@ -153,7 +157,7 @@ struct workqueue_struct *cxgb3_wq;
 static void link_report(struct net_device *dev)
 {
 	if (!netif_carrier_ok(dev))
-		printk(KERN_INFO "%s: link down\n", dev->name);
+		netdev_info(dev, "link down\n");
 	else {
 		const char *s = "10Mbps";
 		const struct port_info *p = netdev_priv(dev);
@@ -170,8 +174,9 @@ static void link_report(struct net_device *dev)
 			break;
 		}
 
-		printk(KERN_INFO "%s: link up, %s, %s-duplex\n", dev->name, s,
-		       p->link_config.duplex == DUPLEX_FULL ? "full" : "half");
+		netdev_info(dev, "link up, %s, %s-duplex\n",
+			    s, p->link_config.duplex == DUPLEX_FULL
+			    ? "full" : "half");
 	}
 }
 
@@ -318,10 +323,10 @@ void t3_os_phymod_changed(struct adapter *adap, int port_id)
 	const struct port_info *pi = netdev_priv(dev);
 
 	if (pi->phy.modtype == phy_modtype_none)
-		printk(KERN_INFO "%s: PHY module unplugged\n", dev->name);
+		netdev_info(dev, "PHY module unplugged\n");
 	else
-		printk(KERN_INFO "%s: %s PHY module inserted\n", dev->name,
-		       mod_str[pi->phy.modtype]);
+		netdev_info(dev, "%s PHY module inserted\n",
+			    mod_str[pi->phy.modtype]);
 }
 
 static void cxgb_set_rxmode(struct net_device *dev)
@@ -645,15 +650,15 @@ static void enable_all_napi(struct adapter *adap)
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
 /**
- *	set_qset_lro - Turn a queue set's LRO capability on and off
- *	@dev: the device the qset is attached to
- *	@qset_idx: the queue set index
- *	@val: the LRO switch
+ *     set_qset_lro - Turn a queue set's LRO capability on and off
+ *     @dev: the device the qset is attached to
+ *     @qset_idx: the queue set index
+ *     @val: the LRO switch
  *
- *	Sets LRO on or off for a particular queue set.
- *	the device's features flag is updated to reflect the LRO
- *	capability when all queues belonging to the device are
- *	in the same state.
+ *     Sets LRO on or off for a particular queue set.
+ *     the device's features flag is updated to reflect the LRO
+ *     capability when all queues belonging to the device are
+ *     in the same state.
  */
 static void set_qset_lro(struct net_device *dev, int qset_idx, int val)
 {
@@ -687,9 +692,6 @@ static int setup_sge_qsets(struct adapter *adap)
 
 		pi->qs = &adap->sge.qs[pi->first_qset];
 		for (j = 0; j < pi->nqsets; ++j, ++qset_idx) {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
-			set_qset_lro(dev, qset_idx, pi->rx_offload & T3_LRO);
-#endif
 			err = t3_sge_alloc_qset(adap, qset_idx, 1,
 				(adap->flags & USING_MSIX) ? qset_idx + 1 :
 							     irq_idx,
@@ -1203,14 +1205,15 @@ static void cxgb_vlan_mode(struct net_device *dev, netdev_features_t features)
 
 	if (adapter->params.rev > 0) {
 		t3_set_vlan_accel(adapter, 1 << pi->port_id,
-				  features & NETIF_F_HW_VLAN_RX);
+				  features & NETIF_F_HW_VLAN_CTAG_RX);
 	} else {
 		/* single control for all ports */
-		unsigned int i, have_vlans = features & NETIF_F_HW_VLAN_RX;
+		unsigned int i, have_vlans = features & NETIF_F_HW_VLAN_CTAG_RX;
 
 		for_each_port(adapter, i)
 			have_vlans |=
-				adapter->port[i]->features & NETIF_F_HW_VLAN_RX;
+				adapter->port[i]->features &
+				NETIF_F_HW_VLAN_CTAG_RX;
 
 		t3_set_vlan_accel(adapter, 1, have_vlans);
 	}
@@ -1236,6 +1239,7 @@ static void vlan_rx_register(struct net_device *dev, struct vlan_group *grp)
 	t3_synchronize_rx(adapter, pi);
 }
 #endif
+
 
 /**
  *	cxgb_up - enable the adapter
@@ -1434,9 +1438,7 @@ out:
 static int offload_close(struct t3cdev *tdev)
 {
 	struct adapter *adapter = tdev2adap(tdev);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 38)
 	struct t3c_data *td = T3C_DATA(tdev);
-#endif
 
 	if (!test_bit(OFFLOAD_DEVMAP_BIT, &adapter->open_device_map))
 		return 0;
@@ -1447,11 +1449,7 @@ static int offload_close(struct t3cdev *tdev)
 	sysfs_remove_group(&tdev->lldev->dev.kobj, &offload_attr_group);
 
 	/* Flush work scheduled while releasing TIDs */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 38)
-	flush_work_sync(&td->tid_release_task);
-#else
-	flush_scheduled_work();
-#endif
+	flush_work(&td->tid_release_task);
 
 	tdev->lldev = NULL;
 	cxgb3_set_dummy_ops(tdev);
@@ -1479,8 +1477,7 @@ static int cxgb_open(struct net_device *dev)
 	if (is_offload(adapter) && !ofld_disable) {
 		err = offload_open(dev);
 		if (err)
-			printk(KERN_WARNING
-			       "Could not initialize offload capabilities\n");
+			pr_warn("Could not initialize offload capabilities\n");
 	}
 
 	netif_set_real_num_tx_queues(dev, pi->nqsets);
@@ -1863,13 +1860,13 @@ static int cxgb3_phys_id(struct net_device *dev, u32 data)
 
 	for (i = 0; i < data * 2; i++) {
 		t3_set_reg_field(adapter, A_T3DBG_GPIO_EN, F_GPIO0_OUT_VAL,
-				 (i & 1) ? F_GPIO0_OUT_VAL : 0);
+				(i & 1) ? F_GPIO0_OUT_VAL : 0);
 		if (msleep_interruptible(500))
 			break;
 	}
 
 	t3_set_reg_field(adapter, A_T3DBG_GPIO_EN, F_GPIO0_OUT_VAL,
-			 F_GPIO0_OUT_VAL);
+			F_GPIO0_OUT_VAL);
 	return 0;
 }
 #endif
@@ -2013,31 +2010,6 @@ static int set_pauseparam(struct net_device *dev,
 	}
 	return 0;
 }
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
-static u32 get_rx_csum(struct net_device *dev)
-{
-	struct port_info *p = netdev_priv(dev);
-
-	return p->rx_offload & T3_RX_CSUM;
-}
-
-static int set_rx_csum(struct net_device *dev, u32 data)
-{
-	struct port_info *p = netdev_priv(dev);
-
-	if (data) {
-		p->rx_offload |= T3_RX_CSUM;
-	} else {
-		int i;
-
-		p->rx_offload &= ~(T3_RX_CSUM | T3_LRO);
-		for (i = p->first_qset; i < p->first_qset + p->nqsets; i++)
-			set_qset_lro(dev, i, 0);
-	}
-	return 0;
-}
-#endif
 
 static void get_sge_param(struct net_device *dev, struct ethtool_ringparam *e)
 {
@@ -2209,12 +2181,6 @@ static const struct ethtool_ops cxgb_ethtool_ops = {
 	.set_eeprom = set_eeprom,
 	.get_pauseparam = get_pauseparam,
 	.set_pauseparam = set_pauseparam,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
-	.get_rx_csum = get_rx_csum,
-	.set_rx_csum = set_rx_csum,
-	.set_tx_csum = ethtool_op_set_tx_csum,
-	.set_sg = ethtool_op_set_sg,
-#endif
 	.get_link = ethtool_op_get_link,
 	.get_strings = get_strings,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
@@ -2228,9 +2194,6 @@ static const struct ethtool_ops cxgb_ethtool_ops = {
 	.get_regs_len = get_regs_len,
 	.get_regs = get_regs,
 	.get_wol = get_wol,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
-	.set_tso = ethtool_op_set_tso,
-#endif
 };
 
 static int in_range(int val, int lo, int hi)
@@ -2277,17 +2240,6 @@ static int cxgb_extension_ioctl(struct net_device *dev, void __user *useraddr)
 		    !in_range(t.rspq_size, MIN_RSPQ_ENTRIES,
 			      MAX_RSPQ_ENTRIES))
 			return -EINVAL;
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
-		if ((adapter->flags & FULL_INIT_DONE) && t.lro > 0)
-			for_each_port(adapter, i) {
-				pi = adap2pinfo(adapter, i);
-				if (t.qset_idx >= pi->first_qset &&
-				    t.qset_idx < pi->first_qset + pi->nqsets &&
-				    !(pi->rx_offload & T3_RX_CSUM))
-					return -EINVAL;
-			}
-#endif
 
 		if ((adapter->flags & FULL_INIT_DONE) &&
 			(t.rspq_size >= 0 || t.fl_size[0] >= 0 ||
@@ -2395,11 +2347,7 @@ static int cxgb_extension_ioctl(struct net_device *dev, void __user *useraddr)
 		t.fl_size[0] = q->fl_size;
 		t.fl_size[1] = q->jumbo_size;
 		t.polling = q->polling;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
 		t.lro = !!(dev->features & NETIF_F_GRO);
-#else
-		t.lro = q->lro;
-#endif
 		t.intr_lat = q->coalesce_usecs;
 		t.cong_thres = q->cong_thres;
 		t.qnum = q1;
@@ -2699,10 +2647,10 @@ static netdev_features_t cxgb_fix_features(struct net_device *dev,
 	 * Since there is no support for separate rx/tx vlan accel
 	 * enable/disable make sure tx flag is always in same state as rx.
 	 */
-	if (features & NETIF_F_HW_VLAN_RX)
-		features |= NETIF_F_HW_VLAN_TX;
+	if (features & NETIF_F_HW_VLAN_CTAG_RX)
+		features |= NETIF_F_HW_VLAN_CTAG_TX;
 	else
-		features &= ~NETIF_F_HW_VLAN_TX;
+		features &= ~NETIF_F_HW_VLAN_CTAG_TX;
 
 	return features;
 }
@@ -2711,7 +2659,7 @@ static int cxgb_set_features(struct net_device *dev, netdev_features_t features)
 {
 	netdev_features_t changed = dev->features ^ features;
 
-	if (changed & NETIF_F_HW_VLAN_RX)
+	if (changed & NETIF_F_HW_VLAN_CTAG_RX)
 		cxgb_vlan_mode(dev, features);
 
 	return 0;
@@ -3173,14 +3121,24 @@ static void t3_io_resume(struct pci_dev *pdev)
 	CH_ALERT(adapter, "adapter recovering, PEX ERR 0x%x\n",
 		 t3_read_reg(adapter, A_PCIE_PEX_ERR));
 
+	rtnl_lock();
 	t3_resume_ports(adapter);
+	rtnl_unlock();
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0)
+static const struct pci_error_handlers t3_err_handler = {
+	.error_detected = t3_io_error_detected,
+	.slot_reset = t3_io_slot_reset,
+	.resume = t3_io_resume,
+};
+#else
 static struct pci_error_handlers t3_err_handler = {
 	.error_detected = t3_io_error_detected,
 	.slot_reset = t3_io_slot_reset,
 	.resume = t3_io_resume,
 };
+#endif
 
 /*
  * Set the number of qsets based on the number of CPUs and the number of ports,
@@ -3190,7 +3148,7 @@ static struct pci_error_handlers t3_err_handler = {
 static void set_nqsets(struct adapter *adap)
 {
 	int i, j = 0;
-	int num_cpus = num_online_cpus();
+	int num_cpus = netif_get_num_default_rss_queues();
 	int hwports = adap->params.nports;
 	int nqsets = adap->msix_nvectors - 1;
 
@@ -3218,7 +3176,7 @@ static void set_nqsets(struct adapter *adap)
 	}
 }
 
-static int __devinit cxgb_enable_msix(struct adapter *adap)
+static int cxgb_enable_msix(struct adapter *adap)
 {
 	struct msix_entry entries[SGE_QSETS + 1];
 	int vectors;
@@ -3248,8 +3206,7 @@ static int __devinit cxgb_enable_msix(struct adapter *adap)
 	return err;
 }
 
-static void __devinit print_port_info(struct adapter *adap,
-				      const struct adapter_info *ai)
+static void print_port_info(struct adapter *adap, const struct adapter_info *ai)
 {
 	static const char *pci_variant[] = {
 		"PCI", "PCI-X", "PCI-X ECC", "PCI-X 266", "PCI Express"
@@ -3273,14 +3230,13 @@ static void __devinit print_port_info(struct adapter *adap,
 
 		if (!test_bit(i, &adap->registered_device_map))
 			continue;
-		printk(KERN_INFO "%s: %s %s %sNIC (rev %d) %s%s\n",
-		       dev->name, ai->desc, pi->phy.desc,
-		       is_offload(adap) ? "R" : "", adap->params.rev, buf,
-		       (adap->flags & USING_MSIX) ? " MSI-X" :
-		       (adap->flags & USING_MSI) ? " MSI" : "");
+		netdev_info(dev, "%s %s %sNIC (rev %d) %s%s\n",
+			    ai->desc, pi->phy.desc,
+			    is_offload(adap) ? "R" : "", adap->params.rev, buf,
+			    (adap->flags & USING_MSIX) ? " MSI-X" :
+			    (adap->flags & USING_MSI) ? " MSI" : "");
 		if (adap->name == dev->name && adap->params.vpd.mclk)
-			printk(KERN_INFO
-			       "%s: %uMB CM, %uMB PMTX, %uMB PMRX, S/N: %s\n",
+			pr_info("%s: %uMB CM, %uMB PMTX, %uMB PMRX, S/N: %s\n",
 			       adap->name, t3_mc7_size(&adap->cm) >> 20,
 			       t3_mc7_size(&adap->pmtx) >> 20,
 			       t3_mc7_size(&adap->pmrx) >> 20,
@@ -3309,7 +3265,7 @@ static const struct net_device_ops cxgb_netdev_ops = {
 #endif
 };
 
-static void __devinit cxgb3_init_iscsi_mac(struct net_device *dev)
+static void cxgb3_init_iscsi_mac(struct net_device *dev)
 {
 	struct port_info *pi = netdev_priv(dev);
 
@@ -3317,27 +3273,23 @@ static void __devinit cxgb3_init_iscsi_mac(struct net_device *dev)
 	pi->iscsic.mac_addr[3] |= 0x80;
 }
 
-static int __devinit init_one(struct pci_dev *pdev,
-			      const struct pci_device_id *ent)
+#define TSO_FLAGS (NETIF_F_TSO | NETIF_F_TSO6 | NETIF_F_TSO_ECN)
+#define VLAN_FEAT (NETIF_F_SG | NETIF_F_IP_CSUM | TSO_FLAGS | \
+			NETIF_F_IPV6_CSUM | NETIF_F_HIGHDMA)
+static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
-	static int version_printed;
-
 	int i, err, pci_using_dac = 0;
 	resource_size_t mmio_start, mmio_len;
 	const struct adapter_info *ai;
 	struct adapter *adapter = NULL;
 	struct port_info *pi;
 
-	if (!version_printed) {
-		printk(KERN_INFO "%s - version %s\n", DRV_DESC, DRV_VERSION);
-		++version_printed;
-	}
+	pr_info_once("%s - version %s\n", DRV_DESC, DRV_VERSION);
 
 	if (!cxgb3_wq) {
 		cxgb3_wq = create_singlethread_workqueue(DRV_NAME);
 		if (!cxgb3_wq) {
-			printk(KERN_ERR DRV_NAME
-			       ": cannot initialize work queue\n");
+			pr_err("cannot initialize work queue\n");
 			return -ENOMEM;
 		}
 	}
@@ -3429,9 +3381,6 @@ static int __devinit init_one(struct pci_dev *pdev,
 		adapter->port[i] = netdev;
 		pi = netdev_priv(netdev);
 		pi->adapter = adapter;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
-		pi->rx_offload = T3_RX_CSUM | T3_LRO;
-#endif
 		pi->port_id = i;
 		netif_carrier_off(netdev);
 		netdev->irq = pdev->irq;
@@ -3441,24 +3390,31 @@ static int __devinit init_one(struct pci_dev *pdev,
 #if LINUX_VERSION_CODE > KERNEL_VERSION(3, 0, 0)
 		netdev->hw_features = NETIF_F_SG | NETIF_F_IP_CSUM |
 			NETIF_F_TSO | NETIF_F_RXCSUM;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0)
+		netdev->features |= netdev->hw_features |
+			NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_HW_VLAN_CTAG_RX;
+#else
 		netdev->features |= netdev->hw_features |
 			NETIF_F_HW_VLAN_TX | NETIF_F_HW_VLAN_RX;
-
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0) */
 #else
 		netdev->hw_features = NETIF_F_SG | NETIF_F_IP_CSUM |
-			NETIF_F_TSO | NETIF_F_RXCSUM | NETIF_F_HW_VLAN_RX;
-		netdev->features |= netdev->hw_features | NETIF_F_HW_VLAN_TX;
-#endif	/* LINUX_VERSION_CODE > KERNEL_VERSION(3,0, 0) */
+			NETIF_F_TSO | NETIF_F_RXCSUM | NETIF_F_HW_VLAN_CTAG_RX;
+		netdev->features |= netdev->hw_features |
+				    NETIF_F_HW_VLAN_CTAG_TX;
+#endif /* LINUX_VERSION_CODE > KERNEL_VERSION(3,0, 0) */
 #else
 		netdev->features |= NETIF_F_SG | NETIF_F_IP_CSUM | NETIF_F_TSO;
 		netdev->features |= NETIF_F_GRO;
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0) */
+		netdev->vlan_features |= netdev->features & VLAN_FEAT;
 		if (pci_using_dac)
 			netdev->features |= NETIF_F_HIGHDMA;
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
 		netdev->features |= NETIF_F_HW_VLAN_TX | NETIF_F_HW_VLAN_RX;
 #endif
+
 		netdev->netdev_ops = &cxgb_netdev_ops;
 		SET_ETHTOOL_OPS(netdev, &cxgb_ethtool_ops);
 	}
@@ -3540,7 +3496,7 @@ out:
 	return err;
 }
 
-static void __devexit remove_one(struct pci_dev *pdev)
+static void remove_one(struct pci_dev *pdev)
 {
 	struct adapter *adapter = pci_get_drvdata(pdev);
 
@@ -3584,7 +3540,7 @@ static struct pci_driver driver = {
 	.name = DRV_NAME,
 	.id_table = cxgb3_pci_tbl,
 	.probe = init_one,
-	.remove = __devexit_p(remove_one),
+	.remove = remove_one,
 	.err_handler = &t3_err_handler,
 };
 

@@ -48,46 +48,7 @@ typedef u32 phys_addr_t;
 })
 #endif /* From include/asm-generic/bug.h */
 
-#if defined(CONFIG_PCMCIA) || defined(CONFIG_PCMCIA_MODULE)
-
-#include <pcmcia/cs_types.h>
-#include <pcmcia/cs.h>
-#include <pcmcia/cistpl.h>
-#ifdef pcmcia_parse_tuple
-#undef pcmcia_parse_tuple
-#define pcmcia_parse_tuple(tuple, parse) pccard_parse_tuple(tuple, parse)
-#endif
-
-/* From : include/pcmcia/ds.h */
-/* loop CIS entries for valid configuration */
-int pcmcia_loop_config(struct pcmcia_device *p_dev,
-		       int	(*conf_check)	(struct pcmcia_device *p_dev,
-						 cistpl_cftable_entry_t *cfg,
-						 cistpl_cftable_entry_t *dflt,
-						 unsigned int vcc,
-						 void *priv_data),
-		       void *priv_data);
-
-#endif /* CONFIG_PCMCIA */
-
-/* USB anchors were added as of 2.6.23 */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,23))
-
-#if defined(CONFIG_USB) || defined(CONFIG_USB_MODULE)
-#if 0
-extern void usb_poison_urb(struct urb *urb);
-#endif
-extern void usb_unpoison_urb(struct urb *urb);
-
-#if 0
-extern void usb_poison_anchored_urbs(struct usb_anchor *anchor);
-#endif
-
-extern int usb_anchor_empty(struct usb_anchor *anchor);
-#endif /* CONFIG_USB */
-#endif
-
-
+#define pci_ioremap_bar LINUX_BACKPORT(pci_ioremap_bar)
 void __iomem *pci_ioremap_bar(struct pci_dev *pdev, int bar);
 
 /**
@@ -243,11 +204,7 @@ static inline void skb_queue_splice_tail(const struct sk_buff_head *list,
 
 #endif
 
-/* openSuse includes round_jiffies_up in it's kernel 2.6.27.
- * This is needed to prevent conflicts with the openSuse definition.
- */
-#define round_jiffies_up backport_round_jiffies_up
-
+#define round_jiffies_up LINUX_BACKPORT(round_jiffies_up)
 unsigned long round_jiffies_up(unsigned long j);
 
 extern void v2_6_28_skb_add_rx_frag(struct sk_buff *skb, int i, struct page *page,
@@ -256,9 +213,11 @@ extern void v2_6_28_skb_add_rx_frag(struct sk_buff *skb, int i, struct page *pag
 #define wake_up_interruptible_poll(x, m)			\
 	__wake_up(x, TASK_INTERRUPTIBLE, 1, (void *) (m))
 
+#define n_tty_ioctl_helper LINUX_BACKPORT(n_tty_ioctl_helper)
 extern int n_tty_ioctl_helper(struct tty_struct *tty, struct file *file,
 		       unsigned int cmd, unsigned long arg);
 
+#define pci_wake_from_d3 LINUX_BACKPORT(pci_wake_from_d3)
 int pci_wake_from_d3(struct pci_dev *dev, bool enable);
 
 #define alloc_workqueue(name, flags, max_active) __create_workqueue(name, flags, max_active)

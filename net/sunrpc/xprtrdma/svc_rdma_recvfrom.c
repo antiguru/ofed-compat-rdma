@@ -521,11 +521,16 @@ next_sge:
 		rqstp->rq_pages[ch_no] = NULL;
 
 	/*
-	 * Detach res pages. svc_release must see a resused count of
-	 * zero or it will attempt to put them.
+	 * Detach res pages. If svc_release sees any it will attempt to
+	 * put them.
 	 */
-	while (rqstp->rq_resused)
-		rqstp->rq_respages[--rqstp->rq_resused] = NULL;
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0))
+        while (rqstp->rq_resused)
+                rqstp->rq_respages[--rqstp->rq_resused] = NULL;
+#else
+	while (rqstp->rq_next_page != rqstp->rq_respages)
+		*(--rqstp->rq_next_page) = NULL;
+#endif
 
 	return err;
 }
@@ -550,7 +555,11 @@ static int rdma_read_complete(struct svc_rqst *rqstp,
 
 	/* rq_respages starts after the last arg page */
 	rqstp->rq_respages = &rqstp->rq_arg.pages[page_no];
-	rqstp->rq_resused = 0;
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0))
+        rqstp->rq_resused = 0;
+#else
+	rqstp->rq_next_page = &rqstp->rq_arg.pages[page_no];
+#endif
 
 	/* Rebuild rq_arg head and tail. */
 	rqstp->rq_arg.head[0] = head->arg.head[0];
