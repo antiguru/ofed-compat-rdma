@@ -39,7 +39,11 @@
 
 #include "iscsi_iser.h"
 
-#define ISER_KMALLOC_THRESHOLD 0x20000 /* 128K - kmalloc limit */
+#if  (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,32))
+	#define ISER_KMALLOC_THRESHOLD 0x80000 /* 512K - kmalloc limit */
+#else
+	#define ISER_KMALLOC_THRESHOLD 0x20000 /* 128K - kmalloc limit */
+#endif
 
 /**
  * iser_start_rdma_unaligned_sg
@@ -74,11 +78,19 @@ static int iser_start_rdma_unaligned_sg(struct iscsi_iser_task *iser_task,
 
 		p = mem;
 		for_each_sg(sgl, sg, data->size, i) {
+#if  (LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0))
 			from = kmap_atomic(sg_page(sg));
+#else
+			from = kmap_atomic(sg_page(sg), KM_USER0);
+#endif
 			memcpy(p,
 			       from + sg->offset,
 			       sg->length);
+#if  (LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0))
 			kunmap_atomic(from);
+#else
+			kunmap_atomic(from, KM_USER0);
+#endif
 			p += sg->length;
 		}
 	}
@@ -134,11 +146,19 @@ void iser_finalize_rdma_unaligned_sg(struct iscsi_iser_task *iser_task,
 
 		p = mem;
 		for_each_sg(sgl, sg, sg_size, i) {
+#if  (LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0))
 			to = kmap_atomic(sg_page(sg));
+#else
+			to = kmap_atomic(sg_page(sg), KM_USER0);
+#endif
 			memcpy(to + sg->offset,
 			       p,
 			       sg->length);
+#if  (LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0))
 			kunmap_atomic(to);
+#else
+			kunmap_atomic(to, KM_USER0);
+#endif
 			p += sg->length;
 		}
 	}

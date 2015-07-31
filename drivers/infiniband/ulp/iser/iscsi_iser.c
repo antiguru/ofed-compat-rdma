@@ -538,6 +538,7 @@ iscsi_iser_conn_get_stats(struct iscsi_cls_conn *cls_conn, struct iscsi_stats *s
 	stats->custom[3].value = conn->fmr_unalign_cnt;
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,39)) || defined(CONFIG_COMPAT_ISCSI_ISER_GET_EP_PARAM)
 static int iscsi_iser_get_ep_param(struct iscsi_endpoint *ep,
 				   enum iscsi_param param, char *buf)
 {
@@ -560,6 +561,7 @@ static int iscsi_iser_get_ep_param(struct iscsi_endpoint *ep,
 
 	return len;
 }
+#endif
 
 static struct iscsi_endpoint *
 iscsi_iser_ep_connect(struct Scsi_Host *shost, struct sockaddr *dst_addr,
@@ -632,8 +634,12 @@ iscsi_iser_ep_disconnect(struct iscsi_endpoint *ep)
 	iser_info("ib conn %p state %d\n", ib_conn, ib_conn->state);
 	iser_conn_terminate(ib_conn);
 }
-
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,3,0))
 static umode_t iser_attr_is_visible(int param_type, int param)
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3,2,0)) || defined(CONFIG_COMPAT_ISER_ATTR_IS_VISIBLE)
+static mode_t iser_attr_is_visible(int param_type, int param)
+#endif
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,2,0)) || defined(CONFIG_COMPAT_ISER_ATTR_IS_VISIBLE)
 {
 	switch (param_type) {
 	case ISCSI_HOST_PARAM:
@@ -677,7 +683,9 @@ static umode_t iser_attr_is_visible(int param_type, int param)
 		case ISCSI_PARAM_TGT_RESET_TMO:
 		case ISCSI_PARAM_IFACE_NAME:
 		case ISCSI_PARAM_INITIATOR_NAME:
+#if defined(CONFIG_ISER_DISCOVERY)
 		case ISCSI_PARAM_DISCOVERY_SESS:
+#endif
 			return S_IRUGO;
 		default:
 			return 0;
@@ -686,6 +694,7 @@ static umode_t iser_attr_is_visible(int param_type, int param)
 
 	return 0;
 }
+#endif
 
 static struct scsi_host_template iscsi_iser_sht = {
 	.module                 = THIS_MODULE,
@@ -697,7 +706,11 @@ static struct scsi_host_template iscsi_iser_sht = {
 	.cmd_per_lun            = ISER_DEF_CMD_PER_LUN,
 	.eh_abort_handler       = iscsi_eh_abort,
 	.eh_device_reset_handler= iscsi_eh_device_reset,
+#if defined(CONFIG_COMPAT_ISCSI_EH_TARGET_RESET)
+	.eh_target_reset_handler = iscsi_eh_target_reset,
+#else
 	.eh_target_reset_handler = iscsi_eh_recover_target,
+#endif
 	.target_alloc		= iscsi_target_alloc,
 	.use_clustering         = DISABLE_CLUSTERING,
 	.proc_name              = "iscsi_iser",
@@ -707,7 +720,37 @@ static struct scsi_host_template iscsi_iser_sht = {
 static struct iscsi_transport iscsi_iser_transport = {
 	.owner                  = THIS_MODULE,
 	.name                   = "iser",
+#if defined(CONFIG_ISER_DISCOVERY)
 	.caps                   = CAP_RECOVERY_L0 | CAP_MULTI_R2T | CAP_TEXT_NEGO,
+#else
+	.caps                   = CAP_RECOVERY_L0 | CAP_MULTI_R2T,
+#endif
+#if defined(CONFIG_COMPAT_ISCSI_TRANSPORT_PARAM_MASK)
+        .param_mask             = ISCSI_MAX_RECV_DLENGTH |
+                                  ISCSI_MAX_XMIT_DLENGTH |
+                                  ISCSI_HDRDGST_EN |
+                                  ISCSI_DATADGST_EN |
+                                  ISCSI_INITIAL_R2T_EN |
+                                  ISCSI_MAX_R2T |
+                                  ISCSI_IMM_DATA_EN |
+                                  ISCSI_FIRST_BURST |
+                                  ISCSI_MAX_BURST |
+                                  ISCSI_PDU_INORDER_EN |
+                                  ISCSI_DATASEQ_INORDER_EN |
+                                  ISCSI_EXP_STATSN |
+                                  ISCSI_PERSISTENT_PORT |
+                                  ISCSI_PERSISTENT_ADDRESS |
+                                  ISCSI_TARGET_NAME | ISCSI_TPGT |
+                                  ISCSI_USERNAME | ISCSI_PASSWORD |
+                                  ISCSI_USERNAME_IN | ISCSI_PASSWORD_IN |
+                                  ISCSI_FAST_ABORT | ISCSI_ABORT_TMO |
+                                  ISCSI_LU_RESET_TMO | ISCSI_TGT_RESET_TMO |
+                                  ISCSI_PING_TMO | ISCSI_RECV_TMO |
+                                  ISCSI_IFACE_NAME | ISCSI_INITIATOR_NAME,
+        .host_param_mask        = ISCSI_HOST_HWADDRESS |
+                                  ISCSI_HOST_NETDEV_NAME |
+                                  ISCSI_HOST_INITIATOR_NAME,
+#endif
 	/* session management */
 	.create_session         = iscsi_iser_session_create,
 	.destroy_session        = iscsi_iser_session_destroy,
@@ -715,10 +758,14 @@ static struct iscsi_transport iscsi_iser_transport = {
 	.create_conn            = iscsi_iser_conn_create,
 	.bind_conn              = iscsi_iser_conn_bind,
 	.destroy_conn           = iscsi_iser_conn_destroy,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,2,0)) || defined(CONFIG_COMPAT_ISER_ATTR_IS_VISIBLE)
 	.attr_is_visible	= iser_attr_is_visible,
+#endif
 	.set_param              = iscsi_iser_set_param,
 	.get_conn_param		= iscsi_conn_get_param,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,39)) || defined(CONFIG_COMPAT_ISCSI_ISER_GET_EP_PARAM)
 	.get_ep_param		= iscsi_iser_get_ep_param,
+#endif
 	.get_session_param	= iscsi_session_get_param,
 	.start_conn             = iscsi_conn_start,
 	.stop_conn              = iscsi_iser_conn_stop,

@@ -343,12 +343,14 @@ static int iser_post_rx_bufs(struct iscsi_conn *conn, struct iscsi_hdr *req)
 	WARN_ON(iser_conn->ib_conn->post_recv_buf_count != 1);
 	WARN_ON(atomic_read(&iser_conn->ib_conn->post_send_buf_count) != 0);
 
+#if defined(CONFIG_ISER_DISCOVERY)
 	if (session->discovery_sess) {
 		iser_info("Discovery session, re-using login RX buffer\n");
 		return 0;
 	} else
 		iser_info("Normal session, posting batch of RX %d buffers\n",
 			  iser_conn->ib_conn->min_posted_rx);
+#endif
 
 	/* Initial post receive buffers */
 	if (iser_post_recvm(iser_conn->ib_conn,
@@ -369,7 +371,11 @@ int iser_send_command(struct iscsi_conn *conn,
 	unsigned long edtl;
 	int err;
 	struct iser_data_buf *data_buf;
+#if  (LINUX_VERSION_CODE >= KERNEL_VERSION(3,1,0)) || defined(CONFIG_COMPAT_IF_ISCSI_SCSI_REQ)
 	struct iscsi_scsi_req *hdr = (struct iscsi_scsi_req *)task->hdr;
+#else
+	struct iscsi_cmd *hdr =  (struct iscsi_cmd *)task->hdr;
+#endif
 	struct scsi_cmnd *sc  =  task->sc;
 	struct iser_tx_desc *tx_desc = &iser_task->desc;
 

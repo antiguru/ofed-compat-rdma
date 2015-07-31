@@ -398,6 +398,11 @@ static int ocrdma_alloc_resources(struct ocrdma_dev *dev)
 		if (!dev->qp_tbl)
 			goto alloc_err;
 	}
+
+	dev->stag_arr = kzalloc(sizeof(u64) * OCRDMA_MAX_STAG, GFP_KERNEL);
+	if (dev->stag_arr == NULL)
+		goto alloc_err;
+
 	spin_lock_init(&dev->av_tbl.lock);
 	spin_lock_init(&dev->flush_q_lock);
 	return 0;
@@ -408,6 +413,7 @@ alloc_err:
 
 static void ocrdma_free_resources(struct ocrdma_dev *dev)
 {
+	kfree(dev->stag_arr);
 	kfree(dev->qp_tbl);
 	kfree(dev->cq_tbl);
 	kfree(dev->sgid_tbl);
@@ -430,12 +436,23 @@ static ssize_t show_fw_ver(struct device *device, struct device_attribute *attr,
 	return scnprintf(buf, PAGE_SIZE, "%s\n", &dev->attr.fw_ver[0]);
 }
 
+static ssize_t show_hca_type(struct device *device,
+			     struct device_attribute *attr, char *buf)
+{
+	struct ocrdma_dev *dev = dev_get_drvdata(device);
+
+	return scnprintf(buf, PAGE_SIZE, "%s\n", &dev->model_number[0]);
+}
+
+
 static DEVICE_ATTR(hw_rev, S_IRUGO, show_rev, NULL);
 static DEVICE_ATTR(fw_ver, S_IRUGO, show_fw_ver, NULL);
+static DEVICE_ATTR(hca_type, S_IRUGO, show_hca_type, NULL);
 
 static struct device_attribute *ocrdma_attributes[] = {
 	&dev_attr_hw_rev,
-	&dev_attr_fw_ver
+	&dev_attr_fw_ver,
+	&dev_attr_hca_type
 };
 
 static void ocrdma_remove_sysfiles(struct ocrdma_dev *dev)
@@ -481,6 +498,7 @@ static struct ocrdma_dev *ocrdma_add(struct be_dev_info *dev_info)
 	if (status)
 		goto alloc_err;
 
+	ocrdma_init_service_level(dev);
 	status = ocrdma_register_device(dev);
 	if (status)
 		goto alloc_err;
@@ -587,6 +605,12 @@ static int ocrdma_close(struct ocrdma_dev *dev)
 	return 0;
 }
 
+static void ocrdma_shutdown(struct ocrdma_dev *dev)
+{
+	ocrdma_close(dev);
+	ocrdma_remove(dev);
+}
+
 /* event handling via NIC driver ensures that all the NIC specific
  * initialization done before RoCE driver notifies
  * event to stack.
@@ -599,6 +623,9 @@ static void ocrdma_event_handler(struct ocrdma_dev *dev, u32 event)
 		break;
 	case BE_DEV_DOWN:
 		ocrdma_close(dev);
+		break;
+	case BE_DEV_SHUTDOWN:
+		ocrdma_shutdown(dev);
 		break;
 	}
 }

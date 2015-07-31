@@ -128,6 +128,9 @@ kernel: $(COMPAT_CONFIG) $(COMPAT_AUTOCONF)
 		CONFIG_MLX4_ETHERNET=$(CONFIG_MLX4_ETHERNET) \
 		CONFIG_MLX4_DEBUG=$(CONFIG_MLX4_DEBUG) \
 		CONFIG_MLX5_DEBUG=$(CONFIG_MLX5_DEBUG) \
+		CONFIG_IBP_SERVER=$(CONFIG_IBP_SERVER) \
+		CONFIG_IBP_DEBUG=$(CONFIG_IBP_DEBUG) \
+		CONFIG_INFINIBAND_SCIF=$(CONFIG_INFINIBAND_SCIF) \
 		CONFIG_INFINIBAND_AMSO1100=$(CONFIG_INFINIBAND_AMSO1100) \
 		CONFIG_SUNRPC_XPRT_RDMA=$(CONFIG_SUNRPC_XPRT_RDMA) \
 		CONFIG_NFSD_RDMA=$(CONFIG_NFSD_RDMA) \
@@ -157,6 +160,7 @@ kernel: $(COMPAT_CONFIG) $(COMPAT_AUTOCONF)
 		-Iinclude \
 		-I$$(srctree)/arch/$$(SRCARCH)/include/uapi \
 		-Iarch/$$(SRCARCH)/include/generated/uapi \
+		-I$$(srctree)/include \
 		-I$$(srctree)/include/uapi \
 		-Iinclude/generated/uapi \
 		$$(if $$(KBUILD_SRC),-Iinclude2 -I$$(srctree)/include) \
