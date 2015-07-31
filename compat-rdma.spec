@@ -89,7 +89,7 @@
 
 %{!?_name: %define _name compat-rdma}
 %{!?_version: %define _version 3.12}
-%{!?_release: %define _release rc3.1.gb03e066}
+%{!?_release: %define _release 0.1.gac916cb}
 
 Name: %{_name}
 Version: %{_version}
@@ -457,9 +457,9 @@ fi
 %endif
 
 %if %{build_mlx5}
-       echo >> %{IB_CONF_DIR}/openib.conf
-       echo "# Load MLX5 modules" >> %{IB_CONF_DIR}/openib.conf
-       echo "MLX5_LOAD=yes" >> %{IB_CONF_DIR}/openib.conf
+       echo >> %{RDMA_CONF_DIR}/openib.conf
+       echo "# Load MLX5 modules" >> %{RDMA_CONF_DIR}/openib.conf
+       echo "MLX5_LOAD=yes" >> %{RDMA_CONF_DIR}/openib.conf
 %endif
 
 %if %{build_mlx4_en}
@@ -626,3 +626,4 @@ fi
 * Thu Feb 16 2012 Vladimir Sokolovsky <vlad@mellanox.com>
 - Created spec file for compat-rdma
 r compat-rdma
+a
